@@ -29,19 +29,19 @@ func main() {
 	bpmnPath := "./workflows/connector_test.bpmn"
 	deployWorkflow(client, bpmnPath)
 
-	// processID := "Process_02q4u98"
-	// variables := map[string]interface{}{
-	// 	"username": "nilptr",
-	// 	"token":    "very_secret_token",
-	// 	"message":  "fail - will this message reach Zeebe?",
-	// 	//"message": "will this message reach Zeebe?",
-	// }
-	//
-	// k := startProcess(client, processID, variables)
-	// token := getOperateToken()
-	// getProcessExecution(k, token)
+	processID := "Process_02q4u98"
+	variables := map[string]interface{}{
+		"username": "nilptr",
+		"token":    "very_secret_token",
+		"message":  "fail - will this message reach Zeebe?",
+		//"message": "will this message reach Zeebe?",
+	}
 
-	processInstanceKey := int64(2251799813734674) // Example process instance
+	k := startProcess(client, processID, variables)
+	token := getOperateToken()
+	getProcessExecution(k, token)
+
+	processInstanceKey := int64(2251799813748268) // Example process instance
 	flowNodeId := "my_template_connector"         // Example task ID
 	interval := 5 * time.Second                   // Check every 5 seconds
 	timeout := 2 * time.Minute                    // Stop after 2 minutes

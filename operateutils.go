@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -125,19 +127,26 @@ func monitorTaskWithReturn(processInstanceKey int64, flowNodeId string, token st
 			return ""
 		}
 
-		// If process is COMPLETED, return completed state
+		// If process is COMPLETED, fetch historical variables before exiting
 		if processInstance.State == "COMPLETED" {
-			fmt.Println("Process instance is COMPLETED. Flow node has finished execution.")
+			fmt.Println("Process instance is COMPLETED. Fetching final variable state...")
+
+			finalVariables, err := fetchProcessVariables(processInstanceKey, token)
+			if err != nil {
+				fmt.Println("Error fetching final process variables:", err)
+			} else {
+				fmt.Printf("Final Variables at process completion: %v\n", finalVariables)
+			}
+
 			return "COMPLETED"
 		}
 
-		// If process is still ACTIVE, log that no flow nodes were found
+		// If process is still ACTIVE but no task is found, log it
 		if processInstance.State == "ACTIVE" {
 			fmt.Println("Process is ACTIVE, but no matching flow node instance was found.")
 			return ""
 		}
 
-		// Otherwise, return empty state
 		return ""
 	}
 
@@ -152,6 +161,14 @@ func monitorTaskWithReturn(processInstanceKey int64, flowNodeId string, token st
 	}
 
 	fmt.Printf("Flow Node '%s' found. State: %s\n", flowNode.FlowNodeName, flowNode.State)
+
+	// Step 4: Fetch process variables at this step
+	variables, err := fetchProcessVariables(processInstanceKey, token)
+	if err != nil {
+		fmt.Println("Error fetching process variables:", err)
+	} else {
+		fmt.Printf("Process Variables at step '%s': %v\n", flowNode.FlowNodeName, variables)
+	}
 
 	// Return the current state of the flow node
 	return flowNode.State
@@ -194,6 +211,14 @@ func monitorTaskProgress(processInstanceKey int64, flowNodeId string, interval t
 			// Stop monitoring if task is completed
 			if currentState == "COMPLETED" {
 				fmt.Println("Flow node has successfully completed execution.")
+
+				// Fetch historical variables after completion
+				finalVariables, err := fetchProcessVariables(processInstanceKey, token)
+				if err != nil {
+					fmt.Println("Error fetching final process variables:", err)
+				} else {
+					fmt.Printf("Final Variables after completion: %v\n", finalVariables)
+				}
 				break
 			}
 		}
@@ -209,4 +234,61 @@ func monitorTaskProgress(processInstanceKey int64, flowNodeId string, interval t
 
 		time.Sleep(interval)
 	}
+}
+
+func fetchProcessVariables(processInstanceKey int64, token string) (map[string]interface{}, error) {
+	url := "http://localhost:8081/v1/variables/search"
+
+	// Request to fetch variables for the given process instance (including completed nodes)
+	payload := fmt.Sprintf(`{
+		"filter": {
+			"processInstanceKey": %d
+		},
+		"size": 100
+	}`, processInstanceKey)
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP request failed: %d - %s", resp.StatusCode, string(body))
+	}
+
+	var variablesResponse struct {
+		Items []struct {
+			Name       string      `json:"name"`
+			Value      interface{} `json:"value"`
+			UpdateTime string      `json:"updateTime"`
+		} `json:"items"`
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(body, &variablesResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store latest recorded variables in a map
+	variables := make(map[string]interface{})
+	for _, v := range variablesResponse.Items {
+		variables[v.Name] = v.Value
+	}
+
+	return variables, nil
 }
