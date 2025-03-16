@@ -49,14 +49,13 @@ type FlowNodeSearchResponse struct {
 	Instances []FlowNodeInstance `json:"items"`
 }
 
-// Fetches the flow node instance key for a given process instance
-func fetchFlowNodeInstanceKey(processInstanceKey int64, token string) (int64, error) {
+func fetchFlowNodeInstanceKey(processInstanceKey int64, token string) (int64, string, error) {
 	url := "http://localhost:8081/v1/flownode-instances/search"
 
 	requestPayload := FlowNodeSearchRequest{}
 	requestPayload.Filter.ProcessInstanceKey = processInstanceKey
 	requestPayload.Filter.State = "ACTIVE"
-	requestPayload.Size = 1
+	requestPayload.Size = 10
 	requestPayload.Sort = []struct {
 		Field string `json:"field"`
 		Order string `json:"order"`
@@ -66,13 +65,13 @@ func fetchFlowNodeInstanceKey(processInstanceKey int64, token string) (int64, er
 
 	payloadBytes, err := json.Marshal(requestPayload)
 	if err != nil {
-		return 0, fmt.Errorf("error marshalling payload: %v", err)
+		return 0, "", fmt.Errorf("error marshalling payload: %v", err)
 	}
 	payload := bytes.NewReader(payloadBytes)
 
 	req, err := http.NewRequest("POST", url, payload)
 	if err != nil {
-		return 0, fmt.Errorf("error creating request: %v", err)
+		return 0, "", fmt.Errorf("error creating request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -81,43 +80,68 @@ func fetchFlowNodeInstanceKey(processInstanceKey int64, token string) (int64, er
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("error making request: %v", err)
+		return 0, "", fmt.Errorf("error making request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return 0, fmt.Errorf("HTTP request failed: %d - %s", resp.StatusCode, string(body))
+		return 0, "", fmt.Errorf("HTTP request failed: %d - %s", resp.StatusCode, string(body))
 	}
 
 	var searchResponse FlowNodeSearchResponse
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return 0, fmt.Errorf("error reading response: %v", err)
+		return 0, "", fmt.Errorf("error reading response: %v", err)
 	}
 
 	err = json.Unmarshal(body, &searchResponse)
 	if err != nil {
-		return 0, fmt.Errorf("error parsing response JSON: %v", err)
+		return 0, "", fmt.Errorf("error parsing response JSON: %v", err)
 	}
 
 	// Ensure at least one result exists
 	if len(searchResponse.Instances) == 0 {
-		return 0, fmt.Errorf("no flow node instances found for processInstanceKey %d", processInstanceKey)
+		return 0, "", fmt.Errorf("no ACTIVE flow node instances found for processInstanceKey %d", processInstanceKey)
 	}
 
-	return searchResponse.Instances[0].Key, nil
+	// Return the first active flow node instance key and its state
+	return searchResponse.Instances[0].Key, searchResponse.Instances[0].State, nil
 }
 
 func monitorTaskWithReturn(processInstanceKey int64, flowNodeId string, token string) string {
-	// Step 1: Fetch the flow node instance key
-	flowNodeInstanceKey, err := fetchFlowNodeInstanceKey(processInstanceKey, token)
+	// Step 1: Fetch the flow node instance key and its state
+	flowNodeInstanceKey, _, err := fetchFlowNodeInstanceKey(processInstanceKey, token)
 	if err != nil {
 		fmt.Println("Error fetching flow node instance key:", err)
+
+		// Step 2: Check if the process itself is completed
+		processInstanceURL := fmt.Sprintf("http://localhost:8081/v1/process-instances/%d", processInstanceKey)
+		var processInstance ProcessInstance
+
+		err = getJSON(processInstanceURL, &processInstance, token)
+		if err != nil {
+			fmt.Println("Error fetching process instance:", err)
+			return ""
+		}
+
+		// If process is COMPLETED, return completed state
+		if processInstance.State == "COMPLETED" {
+			fmt.Println("Process instance is COMPLETED. Flow node has finished execution.")
+			return "COMPLETED"
+		}
+
+		// If process is still ACTIVE, log that no flow nodes were found
+		if processInstance.State == "ACTIVE" {
+			fmt.Println("Process is ACTIVE, but no matching flow node instance was found.")
+			return ""
+		}
+
+		// Otherwise, return empty state
 		return ""
 	}
 
-	// Step 2: Fetch the flow node instance details
+	// Step 3: Fetch the flow node instance details
 	flowNodeInstanceURL := fmt.Sprintf("http://localhost:8081/v1/flownode-instances/%d", flowNodeInstanceKey)
 	var flowNode FlowNodeInstance
 
@@ -135,7 +159,7 @@ func monitorTaskWithReturn(processInstanceKey int64, flowNodeId string, token st
 
 func monitorTask(processInstanceKey int64, flowNodeId string, token string) {
 	// Step 1: Fetch the flow node instance key using process instance key
-	flowNodeInstanceKey, err := fetchFlowNodeInstanceKey(processInstanceKey, token)
+	flowNodeInstanceKey, _, err := fetchFlowNodeInstanceKey(processInstanceKey, token)
 	if err != nil {
 		fmt.Println("Error fetching flow node instance key:", err)
 		return
@@ -166,6 +190,12 @@ func monitorTaskProgress(processInstanceKey int64, flowNodeId string, interval t
 		// Compare with last state
 		if lastState != "" && currentState != lastState {
 			fmt.Printf("State changed! Flow Node '%s' transitioned from '%s' to '%s'.\n", flowNodeId, lastState, currentState)
+
+			// Stop monitoring if task is completed
+			if currentState == "COMPLETED" {
+				fmt.Println("Flow node has successfully completed execution.")
+				break
+			}
 		}
 
 		// Update last known state
