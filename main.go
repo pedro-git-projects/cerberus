@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 )
 
@@ -27,11 +24,15 @@ func main() {
 		panic(err)
 	}
 
-	ctx := context.Background()
-	response, err := client.NewTopologyCommand().Send(ctx)
-	if err != nil {
-		panic(err)
+	bpmnPath := "/home/pedro/dev/camunda/connector_test.bpmn"
+	deployWorkflow(client, bpmnPath)
+
+	processID := "Process_02q4u98"
+	variables := map[string]interface{}{
+		"username": "nilptr",
+		"token":    "very_secret_token",
+		"message":  "will this message reach Zeebe?",
 	}
 
-	fmt.Println(response.String())
+	startProcess(client, processID, variables)
 }

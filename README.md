@@ -63,3 +63,7 @@
 - tasklist-api
 
 These values are then used by Identity to validate tokens and are embedded in the `JWT’s` aud claim.
+
+## Template Directory on Linux
+
+`/opt/camunda-modeler/resources/element-templates`
