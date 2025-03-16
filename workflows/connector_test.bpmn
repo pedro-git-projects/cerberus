@@ -4,8 +4,8 @@
     <bpmn:startEvent id="StartEvent_1">
       <bpmn:outgoing>Flow_1qalhzc</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:sequenceFlow id="Flow_1qalhzc" sourceRef="StartEvent_1" targetRef="my_tempalte_connector" />
-    <bpmn:serviceTask id="my_tempalte_connector" name="Template Connector Call" zeebe:modelerTemplate="io.camunda.connector.Template.v1" zeebe:modelerTemplateVersion="1" zeebe:modelerTemplateIcon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMTgiIHdpZHRoPSIxOCIgdmlld0JveD0iMCAwIDEwIDEwIiBzaGFwZS1yZW5kZXJpbmc9Imdlb21ldHJpY1ByZWNpc2lvbiI+PHRpdGxlPlNsYWNrPC90aXRsZT48ZyBmaWxsPSJub25lIj48cGF0aCBkPSJNMCwwIEwwLDEwIEwxMCwxMCBMMTAsMCB6IiBmaWxsPSIjZWNiMTJmIi8+PC9nPjwvc3ZnPg==">
+    <bpmn:sequenceFlow id="Flow_1qalhzc" sourceRef="StartEvent_1" targetRef="lp" />
+    <bpmn:serviceTask id="lp" name="Template Connector Call" zeebe:modelerTemplate="io.camunda.connector.Template.v1" zeebe:modelerTemplateVersion="1" zeebe:modelerTemplateIcon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMTgiIHdpZHRoPSIxOCIgdmlld0JveD0iMCAwIDEwIDEwIiBzaGFwZS1yZW5kZXJpbmc9Imdlb21ldHJpY1ByZWNpc2lvbiI+PHRpdGxlPlNsYWNrPC90aXRsZT48ZyBmaWxsPSJub25lIj48cGF0aCBkPSJNMCwwIEwwLDEwIEwxMCwxMCBMMTAsMCB6IiBmaWxsPSIjZWNiMTJmIi8+PC9nPjwvc3ZnPg==">
       <bpmn:extensionElements>
         <zeebe:taskDefinition type="io.camunda:template:1" retries="3" />
         <zeebe:ioMapping>
@@ -22,11 +22,11 @@
       <bpmn:incoming>Flow_1qalhzc</bpmn:incoming>
       <bpmn:outgoing>Flow_0joi7ae</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:sequenceFlow id="Flow_0joi7ae" sourceRef="my_tempalte_connector" targetRef="Event_1me9hdl" />
+    <bpmn:sequenceFlow id="Flow_0joi7ae" sourceRef="lp" targetRef="Event_1me9hdl" />
     <bpmn:endEvent id="Event_1me9hdl" name="Successful Termination">
       <bpmn:incoming>Flow_0joi7ae</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:boundaryEvent id="template_failiure" name="template failiure" attachedToRef="my_tempalte_connector">
+    <bpmn:boundaryEvent id="template_failiure" name="template failiure" attachedToRef="lp">
       <bpmn:extensionElements>
         <zeebe:ioMapping>
           <zeebe:output source="=&#34;EXPECTED&#34;" target="caughtErr" />
@@ -52,7 +52,7 @@
       <bpmn:incoming>Flow_1bi95gh</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="Flow_1bi95gh" sourceRef="deal_with_error" targetRef="Event_1thssu7" />
-    <bpmn:boundaryEvent id="Event_1l2oye3" attachedToRef="my_tempalte_connector">
+    <bpmn:boundaryEvent id="Event_1l2oye3" attachedToRef="lp">
       <bpmn:extensionElements>
         <zeebe:ioMapping>
           <zeebe:output source="=&#34;UNEXPECTED&#34;" target="caughtErr" />
@@ -71,7 +71,7 @@
       <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
         <dc:Bounds x="182" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Activity_0ryp015_di" bpmnElement="my_tempalte_connector">
+      <bpmndi:BPMNShape id="Activity_0ryp015_di" bpmnElement="lp">
         <dc:Bounds x="270" y="80" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>

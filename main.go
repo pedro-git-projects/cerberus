@@ -1,10 +1,70 @@
 package main
 
 import (
-	"time"
+	"fmt"
 
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 )
+
+var totalTests int
+var passedTests int
+var failedTests int
+
+var testSuites = []struct {
+	ProcessID string     // Zeebe process ID
+	TestCases []TestCase // Steps to validate within the process instance
+}{
+	// Test Case: Error Handling Path
+	{
+		ProcessID: "Process_02q4u98",
+		TestCases: []TestCase{
+			{
+				FlowNodeID: "Template Connector Call",
+				InitialVariables: map[string]interface{}{
+					"username": "nilptr",
+					"token":    "very_secret_token",
+					"message":  "fail - will this message reach Zeebe?",
+				},
+				ExpectedVariables: map[string]interface{}{
+					"message":  "fail - will this message reach Zeebe?",
+					"token":    "very_secret_token",
+					"username": "nilptr",
+				},
+			},
+			{
+				FlowNodeID: "Deal with error",
+				ExpectedVariables: map[string]interface{}{
+					"caughtErr":     "EXPECTED",
+					"message":       "fail - will this message reach Zeebe?",
+					"token":         "very_secret_token",
+					"username":      "nilptr",
+					"enriched_info": "This error is known and can be handled gracefully.",
+				},
+			},
+		},
+	},
+
+	// Test Case: Success Path
+	{
+		ProcessID: "Process_02q4u98",
+		TestCases: []TestCase{
+			{
+				FlowNodeID: "Template Connector Call",
+				InitialVariables: map[string]interface{}{
+					"username": "nilptr",
+					"token":    "very_secret_token",
+					"message":  "will this message reach Zeebe?",
+				},
+				ExpectedVariables: map[string]interface{}{
+					"message":  "will this message reach Zeebe?",
+					"token":    "very_secret_token",
+					"username": "nilptr",
+					"echo":     "will this message reach Zeebe?",
+				},
+			},
+		},
+	},
+}
 
 func main() {
 	credsProvider, err := zbc.NewOAuthCredentialsProvider(&zbc.OAuthProviderConfig{
@@ -29,22 +89,47 @@ func main() {
 	bpmnPath := "./workflows/connector_test.bpmn"
 	deployWorkflow(client, bpmnPath)
 
-	processID := "Process_02q4u98"
-	variables := map[string]interface{}{
-		"username": "nilptr",
-		"token":    "very_secret_token",
-		"message":  "fail - will this message reach Zeebe?",
-		//"message": "will this message reach Zeebe?",
+	token := getOperateToken()
+
+	// processID := "Process_02q4u98"
+
+	// Iterate over each test suite
+	for _, suite := range testSuites {
+		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
+
+		// Start a single process instance for this test suite
+		processInstanceKey := startProcess(client, suite.ProcessID, suite.TestCases[0].InitialVariables)
+
+		// Validate each flow node transition within this process instance
+		for _, testCase := range suite.TestCases {
+			totalTests++
+			fmt.Printf("\n=== 🧪 Validating Flow Node: %s ===\n", testCase.FlowNodeID)
+
+			if validateProcessExecution(processInstanceKey, token, testCase) {
+				passedTests++
+			} else {
+				failedTests++
+			}
+		}
 	}
 
-	k := startProcess(client, processID, variables)
-	token := getOperateToken()
-	getProcessExecution(k, token)
+	// Print final test summary
+	fmt.Println("\n================= 🏁 Test Summary =================")
+	fmt.Printf("Total Tests: %d | ✅ Passed: %d | ❌ Failed: %d\n", totalTests, passedTests, failedTests)
+	if failedTests > 0 {
+		fmt.Println("❌ Some tests failed. Please check logs for details.")
+	} else {
+		fmt.Println("✅ All tests passed successfully!")
+	}
 
-	processInstanceKey := int64(2251799813748268) // Example process instance
-	flowNodeId := "my_template_connector"         // Example task ID
-	interval := 5 * time.Second                   // Check every 5 seconds
-	timeout := 2 * time.Minute                    // Stop after 2 minutes
-
-	monitorTaskProgress(processInstanceKey, flowNodeId, interval, timeout)
+	// k := startProcess(client, processID, variables)
+	// token := getOperateToken()
+	// getProcessExecution(k, token)
+	//
+	// processInstanceKey := int64(2251799813748268) // Example process instance
+	// flowNodeId := "my_template_connector"         // Example task ID
+	// interval := 5 * time.Second                   // Check every 5 seconds
+	// timeout := 2 * time.Minute                    // Stop after 2 minutes
+	//
+	// monitorTaskProgress(processInstanceKey, flowNodeId, interval, timeout)
 }

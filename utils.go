@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 )
 
 func getJSON(url string, target interface{}, token string) error {
@@ -37,4 +38,14 @@ func getJSON(url string, target interface{}, token string) error {
 	//	fmt.Println("Raw Response:", string(body))
 
 	return json.Unmarshal(body, target)
+}
+
+func normalizeString(value interface{}) string {
+	strValue, ok := value.(string)
+	if !ok {
+		return fmt.Sprintf("%v", value) // Convert non-string types
+	}
+
+	// Trim extra JSON-style quotes if they exist
+	return strings.Trim(strValue, `"`)
 }
