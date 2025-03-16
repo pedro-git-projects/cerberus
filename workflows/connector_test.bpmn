@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_06wphw6" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.33.1" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.6.0">
+  <bpmn:process id="Process_02q4u98" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_1qalhzc</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_1qalhzc" sourceRef="StartEvent_1" targetRef="my_tempalte_connector" />
+    <bpmn:serviceTask id="my_tempalte_connector" name="Template Connector Call" zeebe:modelerTemplate="io.camunda.connector.Template.v1" zeebe:modelerTemplateVersion="1" zeebe:modelerTemplateIcon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMTgiIHdpZHRoPSIxOCIgdmlld0JveD0iMCAwIDEwIDEwIiBzaGFwZS1yZW5kZXJpbmc9Imdlb21ldHJpY1ByZWNpc2lvbiI+PHRpdGxlPlNsYWNrPC90aXRsZT48ZyBmaWxsPSJub25lIj48cGF0aCBkPSJNMCwwIEwwLDEwIEwxMCwxMCBMMTAsMCB6IiBmaWxsPSIjZWNiMTJmIi8+PC9nPjwvc3ZnPg==">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="io.camunda:template:1" retries="3" />
+        <zeebe:ioMapping>
+          <zeebe:input source="=username" target="authentication.user" />
+          <zeebe:input source="= token" target="authentication.token" />
+          <zeebe:input source="=message" target="message" />
+        </zeebe:ioMapping>
+        <zeebe:taskHeaders>
+          <zeebe:header key="resultVariable" value="echo" />
+          <zeebe:header key="errorExpression" value="=if error != null and  error.code = &#34;FAIL&#34; then bpmnError(&#34;FAIL&#34;, &#34;expected error received&#34;) else bpmnError(&#34;UNEXPECTED&#34;, &#34;unexpected err received&#34;)" />
+          <zeebe:header key="retryBackoff" value="PT0S" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1qalhzc</bpmn:incoming>
+      <bpmn:outgoing>Flow_0joi7ae</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_0joi7ae" sourceRef="my_tempalte_connector" targetRef="Event_1me9hdl" />
+    <bpmn:endEvent id="Event_1me9hdl" name="Successful Termination">
+      <bpmn:incoming>Flow_0joi7ae</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="template_failiure" name="template failiure" attachedToRef="my_tempalte_connector">
+      <bpmn:extensionElements>
+        <zeebe:ioMapping>
+          <zeebe:output source="=&#34;we fucked up&#34;" target="caughtErr" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>Flow_1qof8z2</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorEventDefinition_1miag14" errorRef="Error_00a8st6" />
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="Flow_1qof8z2" sourceRef="template_failiure" targetRef="deal_with_error" />
+    <bpmn:serviceTask id="deal_with_error" name="Deal with error">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="deal_with_err" retries="3" />
+        <zeebe:ioMapping>
+          <zeebe:input source="=caughtErr" target="caughtErr" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1qof8z2</bpmn:incoming>
+      <bpmn:incoming>Flow_1pdrnh8</bpmn:incoming>
+      <bpmn:outgoing>Flow_1bi95gh</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="Event_1thssu7" name="Borked Termination">
+      <bpmn:incoming>Flow_1bi95gh</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1bi95gh" sourceRef="deal_with_error" targetRef="Event_1thssu7" />
+    <bpmn:boundaryEvent id="Event_1l2oye3" attachedToRef="my_tempalte_connector">
+      <bpmn:extensionElements>
+        <zeebe:ioMapping>
+          <zeebe:output source="=&#34;I dunno what happened&#34;" target="caughtErr" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>Flow_1pdrnh8</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorEventDefinition_1dz6iq6" errorRef="Error_01b07lt" />
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="Flow_1pdrnh8" sourceRef="Event_1l2oye3" targetRef="deal_with_error" />
+  </bpmn:process>
+  <bpmn:error id="Error_00a8st6" name="error_code" errorCode="FAIL" />
+  <bpmn:error id="Error_0z7g9om" name="We fkd up" errorCode="FAIL" />
+  <bpmn:error id="Error_01b07lt" name="unexpected" errorCode="UNEXPECTED" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_02q4u98">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="182" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0ryp015_di" bpmnElement="my_tempalte_connector">
+        <dc:Bounds x="270" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1me9hdl_di" bpmnElement="Event_1me9hdl">
+        <dc:Bounds x="532" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="522" y="145" width="57" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1thssu7_di" bpmnElement="Event_1thssu7">
+        <dc:Bounds x="522" y="292" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="512" y="335" width="57" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0oqkz8s_di" bpmnElement="deal_with_error">
+        <dc:Bounds x="320" y="270" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0lsrkbm_di" bpmnElement="template_failiure">
+        <dc:Bounds x="352" y="142" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="381" y="185" width="78" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_15a7lyh_di" bpmnElement="Event_1l2oye3">
+        <dc:Bounds x="272" y="142" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1qalhzc_di" bpmnElement="Flow_1qalhzc">
+        <di:waypoint x="218" y="120" />
+        <di:waypoint x="270" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0joi7ae_di" bpmnElement="Flow_0joi7ae">
+        <di:waypoint x="370" y="120" />
+        <di:waypoint x="532" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1qof8z2_di" bpmnElement="Flow_1qof8z2">
+        <di:waypoint x="370" y="178" />
+        <di:waypoint x="370" y="270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1bi95gh_di" bpmnElement="Flow_1bi95gh">
+        <di:waypoint x="420" y="310" />
+        <di:waypoint x="522" y="310" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1pdrnh8_di" bpmnElement="Flow_1pdrnh8">
+        <di:waypoint x="290" y="178" />
+        <di:waypoint x="290" y="310" />
+        <di:waypoint x="320" y="310" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

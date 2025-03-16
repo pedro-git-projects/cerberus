@@ -31,7 +31,8 @@ func main() {
 	variables := map[string]interface{}{
 		"username": "nilptr",
 		"token":    "very_secret_token",
-		"message":  "will this message reach Zeebe?",
+		"message":  "fail - will this message reach Zeebe?",
+		//"message": "will this message reach Zeebe?",
 	}
 
 	startProcess(client, processID, variables)
