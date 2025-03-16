@@ -15,7 +15,7 @@
         </zeebe:ioMapping>
         <zeebe:taskHeaders>
           <zeebe:header key="resultVariable" value="echo" />
-          <zeebe:header key="errorExpression" value="=if error != null and  error.code = &#34;FAIL&#34; then bpmnError(&#34;FAIL&#34;, &#34;expected error received&#34;) else bpmnError(&#34;UNEXPECTED&#34;, &#34;unexpected err received&#34;)" />
+          <zeebe:header key="errorExpression" value="=if error != null and error.code = &#34;FAIL&#34; &#10;then bpmnError(&#34;FAIL&#34;, &#34;expected error received&#34;) &#10;else if error != null &#10;then bpmnError(&#34;UNEXPECTED&#34;, &#34;unexpected err received&#34;) &#10;else null" />
           <zeebe:header key="retryBackoff" value="PT0S" />
         </zeebe:taskHeaders>
       </bpmn:extensionElements>

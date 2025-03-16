@@ -11,7 +11,7 @@ var passedTests int
 var failedTests int
 
 var testSuites = []struct {
-	ProcessID string     // Zeebe process ID
+	ProcessID string
 	TestCases []TestCase // Steps to validate within the process instance
 }{
 	// Test Case: Error Handling Path
@@ -59,7 +59,18 @@ var testSuites = []struct {
 					"message":  "will this message reach Zeebe?",
 					"token":    "very_secret_token",
 					"username": "nilptr",
-					"echo":     "will this message reach Zeebe?",
+				},
+			},
+			{
+				FlowNodeID: "Successful Termination",
+				ExpectedVariables: map[string]interface{}{
+					"caughtErr": "EXPECTED",
+					"message":   "will this message reach Zeebe?",
+					"token":     "very_secret_token",
+					"username":  "nilptr",
+					"echo": map[string]interface{}{
+						"myProperty": "Message received: will this message reach Zeebe?",
+					},
 				},
 			},
 		},
@@ -91,9 +102,6 @@ func main() {
 
 	token := getOperateToken()
 
-	// processID := "Process_02q4u98"
-
-	// Iterate over each test suite
 	for _, suite := range testSuites {
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
 
@@ -121,15 +129,4 @@ func main() {
 	} else {
 		fmt.Println("✅ All tests passed successfully!")
 	}
-
-	// k := startProcess(client, processID, variables)
-	// token := getOperateToken()
-	// getProcessExecution(k, token)
-	//
-	// processInstanceKey := int64(2251799813748268) // Example process instance
-	// flowNodeId := "my_template_connector"         // Example task ID
-	// interval := 5 * time.Second                   // Check every 5 seconds
-	// timeout := 2 * time.Minute                    // Stop after 2 minutes
-	//
-	// monitorTaskProgress(processInstanceKey, flowNodeId, interval, timeout)
 }

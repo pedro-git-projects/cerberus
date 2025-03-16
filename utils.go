@@ -49,3 +49,28 @@ func normalizeString(value interface{}) string {
 	// Trim extra JSON-style quotes if they exist
 	return strings.Trim(strValue, `"`)
 }
+
+func extractNestedString(value interface{}) string {
+	// If it's already a string, return it directly
+	strValue, ok := value.(string)
+	if ok {
+		return strValue
+	}
+
+	// If it's a map, extract the first string field
+	if jsonMap, ok := value.(map[string]interface{}); ok {
+		if myProperty, exists := jsonMap["myProperty"]; exists {
+			if str, ok := myProperty.(string); ok {
+				return str
+			}
+		}
+	}
+
+	// Convert JSON object to string for comparison
+	jsonBytes, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value) // Fallback if not JSON
+	}
+
+	return string(jsonBytes)
+}
