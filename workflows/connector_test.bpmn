@@ -29,7 +29,7 @@
     <bpmn:boundaryEvent id="template_failiure" name="template failiure" attachedToRef="my_tempalte_connector">
       <bpmn:extensionElements>
         <zeebe:ioMapping>
-          <zeebe:output source="=&#34;we fucked up&#34;" target="caughtErr" />
+          <zeebe:output source="=&#34;EXPECTED&#34;" target="caughtErr" />
         </zeebe:ioMapping>
       </bpmn:extensionElements>
       <bpmn:outgoing>Flow_1qof8z2</bpmn:outgoing>
@@ -41,6 +41,7 @@
         <zeebe:taskDefinition type="deal_with_err" retries="3" />
         <zeebe:ioMapping>
           <zeebe:input source="=caughtErr" target="caughtErr" />
+          <zeebe:output source="=enriched_info" target="enriched_info" />
         </zeebe:ioMapping>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_1qof8z2</bpmn:incoming>
@@ -54,7 +55,7 @@
     <bpmn:boundaryEvent id="Event_1l2oye3" attachedToRef="my_tempalte_connector">
       <bpmn:extensionElements>
         <zeebe:ioMapping>
-          <zeebe:output source="=&#34;I dunno what happened&#34;" target="caughtErr" />
+          <zeebe:output source="=&#34;UNEXPECTED&#34;" target="caughtErr" />
         </zeebe:ioMapping>
       </bpmn:extensionElements>
       <bpmn:outgoing>Flow_1pdrnh8</bpmn:outgoing>
@@ -80,23 +81,23 @@
           <dc:Bounds x="522" y="145" width="57" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0oqkz8s_di" bpmnElement="deal_with_error">
+        <dc:Bounds x="320" y="270" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_1thssu7_di" bpmnElement="Event_1thssu7">
         <dc:Bounds x="522" y="292" width="36" height="36" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="512" y="335" width="57" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Activity_0oqkz8s_di" bpmnElement="deal_with_error">
-        <dc:Bounds x="320" y="270" width="100" height="80" />
+      <bpmndi:BPMNShape id="Event_15a7lyh_di" bpmnElement="Event_1l2oye3">
+        <dc:Bounds x="272" y="142" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_0lsrkbm_di" bpmnElement="template_failiure">
         <dc:Bounds x="352" y="142" width="36" height="36" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="381" y="185" width="78" height="14" />
         </bpmndi:BPMNLabel>
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Event_15a7lyh_di" bpmnElement="Event_1l2oye3">
-        <dc:Bounds x="272" y="142" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_1qalhzc_di" bpmnElement="Flow_1qalhzc">
         <di:waypoint x="218" y="120" />

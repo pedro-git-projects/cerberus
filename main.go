@@ -24,7 +24,7 @@ func main() {
 		panic(err)
 	}
 
-	bpmnPath := "/home/pedro/dev/camunda/connector_test.bpmn"
+	bpmnPath := "./workflows/connector_test.bpmn"
 	deployWorkflow(client, bpmnPath)
 
 	processID := "Process_02q4u98"
