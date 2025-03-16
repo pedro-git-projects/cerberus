@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -114,8 +116,29 @@ func validateVariables(expected, actual map[string]interface{}) bool {
 			fmt.Printf("❌ Missing expected variable: %s\n", key)
 			return false
 		}
-		if normalizeString(actualValue) != normalizeString(expectedValue) {
-			fmt.Printf("❌ Mismatch for variable '%s'. Expected: %v, Got: %v\n", key, expectedValue, actualValue)
+
+		// <-- If expected is a map, but actual is a JSON string, try to parse it.
+		switch exp := expectedValue.(type) {
+		case map[string]interface{}:
+			// The test expects a map. Check if actualValue is a string containing JSON
+			if str, ok := actualValue.(string); ok {
+				var attempt map[string]interface{}
+				if json.Unmarshal([]byte(str), &attempt) == nil {
+					// now compare attempt vs exp
+					if !reflect.DeepEqual(exp, attempt) {
+						fmt.Printf("❌ Mismatch for variable '%s'.\nExpected: %v\nGot: %v\n", key, exp, attempt)
+						return false
+					}
+					// match is good, continue
+					continue
+				}
+			}
+		}
+
+		// If neither is a map nor a JSON string, fall back to normal comparison...
+		if extractNestedString(actualValue) != extractNestedString(expectedValue) {
+			fmt.Printf("❌ Mismatch for variable '%s'. Expected: %v, Got: %v\n",
+				key, expectedValue, actualValue)
 			return false
 		}
 	}

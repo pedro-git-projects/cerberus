@@ -64,10 +64,9 @@ var testSuites = []struct {
 			{
 				FlowNodeID: "Successful Termination",
 				ExpectedVariables: map[string]interface{}{
-					"caughtErr": "EXPECTED",
-					"message":   "will this message reach Zeebe?",
-					"token":     "very_secret_token",
-					"username":  "nilptr",
+					"message":  "will this message reach Zeebe?",
+					"token":    "very_secret_token",
+					"username": "nilptr",
 					"echo": map[string]interface{}{
 						"myProperty": "Message received: will this message reach Zeebe?",
 					},

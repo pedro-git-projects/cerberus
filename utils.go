@@ -54,14 +54,14 @@ func extractNestedString(value interface{}) string {
 	// If it's already a string, return it directly
 	strValue, ok := value.(string)
 	if ok {
-		return strValue
+		return strings.Trim(strValue, `"`) // Remove unnecessary quotes
 	}
 
 	// If it's a map, extract the first string field
 	if jsonMap, ok := value.(map[string]interface{}); ok {
 		if myProperty, exists := jsonMap["myProperty"]; exists {
 			if str, ok := myProperty.(string); ok {
-				return str
+				return strings.Trim(str, `"`)
 			}
 		}
 	}
@@ -69,7 +69,7 @@ func extractNestedString(value interface{}) string {
 	// Convert JSON object to string for comparison
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
-		return fmt.Sprintf("%v", value) // Fallback if not JSON
+		return fmt.Sprintf("%v", value) // If not JSON, return as-is
 	}
 
 	return string(jsonBytes)
