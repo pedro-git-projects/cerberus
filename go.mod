@@ -1,10 +1,11 @@
-module github.com/pedro-git-projects/cerberus
+module github.com/pedro-git-projects/flow-sentry
 
 go 1.24.1
 
+require github.com/camunda-community-hub/zeebe-client-go/v8 v8.6.0
+
 require (
 	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 // indirect
-	github.com/camunda-community-hub/zeebe-client-go/v8 v8.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
