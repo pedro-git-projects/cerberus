@@ -67,3 +67,6 @@ These values are then used by Identity to validate tokens and are embedded in th
 ## Template Directory on Linux
 
 `/opt/camunda-modeler/resources/element-templates`
+
+
+![test runner](images/print.jpg)
