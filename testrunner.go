@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-type TestCase struct {
-	FlowNodeID        string
-	ExpectedVariables map[string]interface{}
-	InitialVariables  map[string]interface{}
-}
-
 func validateProcessExecution(processInstanceKey int64, token string, testCase TestCase) bool {
 	startTime := time.Now()
 

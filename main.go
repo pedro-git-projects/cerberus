@@ -2,81 +2,58 @@ package main
 
 import (
 	"fmt"
+	"log"
 
+	"io/ioutil"
+
+	"github.com/BurntSushi/toml"
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 )
 
-var totalTests int
-var passedTests int
-var failedTests int
-
-var testSuites = []struct {
-	ProcessID string
-	TestCases []TestCase // Steps to validate within the process instance
-}{
-	// Test Case: Error Handling Path
-	{
-		ProcessID: "Process_02q4u98",
-		TestCases: []TestCase{
-			{
-				FlowNodeID: "Template Connector Call",
-				InitialVariables: map[string]interface{}{
-					"username": "nilptr",
-					"token":    "very_secret_token",
-					"message":  "fail - will this message reach Zeebe?",
-				},
-				ExpectedVariables: map[string]interface{}{
-					"message":  "fail - will this message reach Zeebe?",
-					"token":    "very_secret_token",
-					"username": "nilptr",
-				},
-			},
-			{
-				FlowNodeID: "Deal with error",
-				ExpectedVariables: map[string]interface{}{
-					"caughtErr":     "EXPECTED",
-					"message":       "fail - will this message reach Zeebe?",
-					"token":         "very_secret_token",
-					"username":      "nilptr",
-					"enriched_info": "This error is known and can be handled gracefully.",
-				},
-			},
-		},
-	},
-
-	// Test Case: Success Path
-	{
-		ProcessID: "Process_02q4u98",
-		TestCases: []TestCase{
-			{
-				FlowNodeID: "Template Connector Call",
-				InitialVariables: map[string]interface{}{
-					"username": "nilptr",
-					"token":    "very_secret_token",
-					"message":  "will this message reach Zeebe?",
-				},
-				ExpectedVariables: map[string]interface{}{
-					"message":  "will this message reach Zeebe?",
-					"token":    "very_secret_token",
-					"username": "nilptr",
-				},
-			},
-			{
-				FlowNodeID: "Successful Termination",
-				ExpectedVariables: map[string]interface{}{
-					"message":  "will this message reach Zeebe?",
-					"token":    "very_secret_token",
-					"username": "nilptr",
-					"echo": map[string]interface{}{
-						"myProperty": "Message received: will this message reach Zeebe?",
-					},
-				},
-			},
-		},
-	},
+type TestCase struct {
+	FlowNodeID        string                 `toml:"flow_node_id"`
+	ExpectedVariables map[string]interface{} `toml:"expected_variables"`
+	InitialVariables  map[string]interface{} `toml:"initial_variables"`
 }
 
-func main() {
+type TestSuite struct {
+	ProcessID string     `toml:"process_id"`
+	TestCases []TestCase `toml:"test_cases"`
+}
+
+type Config struct {
+	TestSuites []TestSuite `toml:"test_suites"`
+}
+
+func LoadTestSuites(filename string) ([]TestSuite, error) {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var conf Config
+	if _, err := toml.Decode(string(data), &conf); err != nil {
+		return nil, err
+	}
+	return conf.TestSuites, nil
+}
+
+type App struct {
+	totalTests  int
+	passedTests int
+	failedTests int
+	client      zbc.Client
+	bpmnPath    string
+}
+
+func NewApp() *App {
+	app := &App{}
+	app.initCredentials()
+	app.bpmnPath = "./workflows/connector_test.bpmn"
+	return app
+}
+
+func (app *App) initCredentials() {
 	credsProvider, err := zbc.NewOAuthCredentialsProvider(&zbc.OAuthProviderConfig{
 		ClientID:               "zeebe",
 		ClientSecret:           "zecret",
@@ -96,36 +73,50 @@ func main() {
 		panic(err)
 	}
 
-	bpmnPath := "./workflows/connector_test.bpmn"
-	deployWorkflow(client, bpmnPath)
+	app.client = client
+}
 
+func (app *App) deployBpmn() {
+	deployWorkflow(app.client, app.bpmnPath)
+}
+
+func (app *App) RunTestSuites(suites []TestSuite) {
 	token := getOperateToken()
 
-	for _, suite := range testSuites {
+	for _, suite := range suites {
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
 
-		// Start a single process instance for this test suite
-		processInstanceKey := startProcess(client, suite.ProcessID, suite.TestCases[0].InitialVariables)
+		processInstanceKey := startProcess(app.client, suite.ProcessID, suite.TestCases[0].InitialVariables)
 
-		// Validate each flow node transition within this process instance
 		for _, testCase := range suite.TestCases {
-			totalTests++
+			app.totalTests++
 			fmt.Printf("\n=== 🧪 Validating Flow Node: %s ===\n", testCase.FlowNodeID)
 
 			if validateProcessExecution(processInstanceKey, token, testCase) {
-				passedTests++
+				app.passedTests++
 			} else {
-				failedTests++
+				app.failedTests++
 			}
 		}
 	}
 
-	// Print final test summary
 	fmt.Println("\n================= 🏁 Test Summary =================")
-	fmt.Printf("Total Tests: %d | ✅ Passed: %d | ❌ Failed: %d\n", totalTests, passedTests, failedTests)
-	if failedTests > 0 {
+	fmt.Printf("Total Tests: %d | ✅ Passed: %d | ❌ Failed: %d\n", app.totalTests, app.passedTests, app.failedTests)
+	if app.failedTests > 0 {
 		fmt.Println("❌ Some tests failed. Please check logs for details.")
 	} else {
 		fmt.Println("✅ All tests passed successfully!")
 	}
+}
+
+func main() {
+	app := NewApp()
+	app.deployBpmn()
+
+	suites, err := LoadTestSuites("testsuites.toml")
+	if err != nil {
+		log.Fatalf("Error loading test suites: %v", err)
+	}
+
+	app.RunTestSuites(suites)
 }
