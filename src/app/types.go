@@ -7,8 +7,9 @@ type TestCase struct {
 }
 
 type TestSuite struct {
-	ProcessID string     `toml:"process_id"`
-	TestCases []TestCase `toml:"test_cases"`
+	ProcessID      string     `toml:"process_id"`
+	WorkflowDeploy string     `toml:workflow_deploy,omitempty`
+	TestCases      []TestCase `toml:"test_cases"`
 }
 
 type Config struct {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"reflect"
 	"time"
 
@@ -12,12 +11,8 @@ import (
 	"github.com/pedro-git-projects/flow-sentry/utils"
 )
 
-func (app *App) RunTestSuites() {
+func (app *App) RunTestSuites(suites []TestSuite) {
 	token := app.operate.GetOperateToken()
-	suites, err := app.loadTestSuites(app.config.SuitesPath)
-	if err != nil {
-		log.Fatalf("Failed to load test suites %v", err)
-	}
 	app.testSuites = suites
 
 	for _, suite := range app.testSuites {
