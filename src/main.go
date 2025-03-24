@@ -6,6 +6,5 @@ import (
 
 func main() {
 	app := app.New()
-	app.DeployBpmn()
-	app.RunTestSuites()
+	app.Execute()
 }

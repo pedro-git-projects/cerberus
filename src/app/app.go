@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 	"github.com/pedro-git-projects/flow-sentry/operate"
@@ -22,6 +23,8 @@ type config struct {
 	BpmnPath               string
 	OperateBaseURL         string
 	SuitesPath             string
+	TestSuitesFlag         string
+	DeployWorkflowsFlag    string
 }
 
 type App struct {
@@ -69,6 +72,8 @@ func (app *App) initConfig() {
 		OperateBaseURL:         "",
 		BpmnPath:               "",
 		SuitesPath:             "",
+		TestSuitesFlag:         "", // will be set in initFlags
+		DeployWorkflowsFlag:    "", // will be set in initFlags
 	}
 }
 
@@ -93,15 +98,55 @@ func (app *App) initFlags() {
 	authServerURLFlag := flag.String("auth", authServerURLDefault, "Authorization server URL")
 	gatewayAddressFlag := flag.String("gateway", gatewayAddressDefault, "Gateway address")
 	flag.Parse()
+	testSuitesFlag := flag.String("testsuites", "all", "Comma-separated list of test suite process IDs to run, or 'all' to run every suite.")
+	deployWorkflowsFlag := flag.String("deployWorkflows", "none", "Workflow deployment option: 'none', 'suite', 'all', or comma-separated workflow file names.")
 
 	app.config.OperateBaseURL = *operateBaseURLFlag
 	app.config.AuthorizationServerURL = *authServerURLFlag
 	app.config.GatewayAddress = *gatewayAddressFlag
+	app.config.TestSuitesFlag = *testSuitesFlag
+	app.config.DeployWorkflowsFlag = *deployWorkflowsFlag
+}
+
+// Execute processes workflow deployment and test suite execution based on flags.
+func (app *App) Execute() {
+	// Process workflow deployment.
+	switch app.config.DeployWorkflowsFlag {
+	case "none":
+		// Do nothing.
+	case "suite":
+		app.DeployWorkflowsFromSuites()
+	case "all":
+		if err := app.DeployAllWorkflows(); err != nil {
+			log.Fatalf("Failed to deploy all workflows: %v", err)
+		}
+	default:
+		// Assume comma-separated workflow file names.
+		workflowFiles := strings.Split(app.config.DeployWorkflowsFlag, ",")
+		if err := app.DeployArbitraryWorkflows(workflowFiles); err != nil {
+			log.Fatalf("Failed to deploy workflows: %v", err)
+		}
+	}
+
+	// Process test suite selection.
+	var suites []TestSuite
+	var err error
+	if app.config.TestSuitesFlag == "all" {
+		suites, err = app.loadAllTestSuites()
+	} else {
+		selected := strings.Split(app.config.TestSuitesFlag, ",")
+		suites, err = app.LoadSelectedTestSuites(selected)
+	}
+	if err != nil {
+		log.Fatalf("Failed to load test suites: %v", err)
+	}
+
+	app.RunTestSuites(suites)
 }
 
 // initBpmnPath sets the BPMN file path based on the OS.
 // If no BPMN path is passed, it defaults to:
-//   - Linux/Mac: $HOME/.config/flows-sentry/workflows/connector_test.bpmn
+//   - Linux/Mac: $HOME/.config/flow-sentry/workflows/connector_test.bpmn
 //   - Windows:   %AppData%\local\flow-sentry\workflows\connector_test.bpmn
 func (app *App) initBpmnPath() {
 	if app.config.BpmnPath != "" {
@@ -116,7 +161,7 @@ func (app *App) initBpmnPath() {
 		if err != nil {
 			log.Fatalf("Failed to get user home directory: %v", err)
 		}
-		basePath = filepath.Join(home, ".config", "flows-sentry", "workflows")
+		basePath = filepath.Join(home, ".config", "flow-sentry", "workflows")
 	}
 	// TODO: configure BPMNs to be deployed
 	// Default BPMN file name.
@@ -125,7 +170,7 @@ func (app *App) initBpmnPath() {
 
 // initSuitesPath sets the test suites path based on the OS.
 // If none is passed, it defaults to:
-//   - Linux/Mac: $HOME/.config/flows-sentry/suites
+//   - Linux/Mac: $HOME/.config/flow-sentry/suites
 //   - Windows:   %AppData%\local\flow-sentry\suites
 func (app *App) initSuitesPath() {
 	if app.config.SuitesPath != "" {
@@ -140,7 +185,7 @@ func (app *App) initSuitesPath() {
 		if err != nil {
 			log.Fatalf("Failed to get user home directory: %v", err)
 		}
-		basePath = filepath.Join(home, ".config", "flows-sentry", "suites")
+		basePath = filepath.Join(home, ".config", "flow-sentry", "suites")
 	}
 	app.config.SuitesPath = basePath
 }
