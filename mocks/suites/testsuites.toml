@@ -10,7 +10,12 @@ expected_variables = { message = "fail - will this message reach zeebe?", token 
 
 [[test_suites.test_cases]]
 flow_node_id = "Deal with error"
+expected_variables = { caughtErr = "EXPECTED", message = "fail - will this message reach zeebe?", token = "very_secret_token", username = "nilptr" }
+
+[[test_suites.test_cases]]
+flow_node_id = "Borked Termination"
 expected_variables = { caughtErr = "EXPECTED", message = "fail - will this message reach zeebe?", token = "very_secret_token", username = "nilptr", enriched_info = "This error is known and can be handled gracefully." }
+
 
 # test suite: success path
 [[test_suites]]
