@@ -118,6 +118,7 @@ func (app *App) initBpmnPath() {
 		}
 		basePath = filepath.Join(home, ".config", "flows-sentry", "workflows")
 	}
+	// TODO: configure BPMNs to be deployed
 	// Default BPMN file name.
 	app.config.BpmnPath = filepath.Join(basePath, "connector_test.bpmn")
 }
