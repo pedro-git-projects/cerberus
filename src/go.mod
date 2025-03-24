@@ -5,6 +5,7 @@ go 1.24.1
 require github.com/camunda-community-hub/zeebe-client-go/v8 v8.6.0
 
 require (
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect

@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func getJSON(url string, target interface{}, token string) error {
+func GetJSON(client *http.Client, url string, target interface{}, token string) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -16,14 +16,12 @@ func getJSON(url string, target interface{}, token string) error {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Debugging: Check HTTP status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP request failed: %d - %s", resp.StatusCode, string(body))
@@ -34,13 +32,10 @@ func getJSON(url string, target interface{}, token string) error {
 		return err
 	}
 
-	// Debugging: Print raw response
-	//	fmt.Println("Raw Response:", string(body))
-
 	return json.Unmarshal(body, target)
 }
 
-func normalizeString(value interface{}) string {
+func NormalizeString(value interface{}) string {
 	strValue, ok := value.(string)
 	if !ok {
 		return fmt.Sprintf("%v", value) // Convert non-string types
@@ -50,7 +45,7 @@ func normalizeString(value interface{}) string {
 	return strings.Trim(strValue, `"`)
 }
 
-func extractNestedString(value interface{}) string {
+func ExtractNestedString(value interface{}) string {
 	// If it's already a string, return it directly
 	strValue, ok := value.(string)
 	if ok {
