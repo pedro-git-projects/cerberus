@@ -1,5 +1,5 @@
 package app
 
 func (app *App) DeployBpmn() {
-	app.zeebe.DeployWorkflow(app.bpmnPath)
+	app.zeebe.DeployWorkflow(app.config.BpmnPath)
 }

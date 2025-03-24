@@ -1,22 +1,37 @@
 package app
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 	"github.com/pedro-git-projects/flow-sentry/operate"
 	"github.com/pedro-git-projects/flow-sentry/zeebe"
 )
 
+type config struct {
+	ClientID               string
+	ClientSecret           string
+	Audience               string
+	GatewayAddress         string
+	AuthorizationServerURL string
+	BpmnPath               string
+	OperateBaseURL         string
+	SuitesPath             string
+}
+
 type App struct {
 	totalTests  int
 	passedTests int
 	failedTests int
-	client      zbc.Client
-	bpmnPath    string
+
+	config     config
+	client     zbc.Client
+	testSuites []TestSuite
 
 	httpClient *http.Client
 	operate    *operate.OperateService
@@ -25,60 +40,124 @@ type App struct {
 
 func New() *App {
 	httpClient := &http.Client{}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("Failed to get working directory: %v", err)
-	}
-	bpmnPath := filepath.Join(cwd, "workflows", "connector_test.bpmn")
-
 	app := &App{
-		bpmnPath:   bpmnPath,
 		httpClient: httpClient,
 	}
 
-	credsProvider, err := zbc.NewOAuthCredentialsProvider(&zbc.OAuthProviderConfig{
-		ClientID:               "zeebe",
-		ClientSecret:           "zecret",
-		Audience:               "zeebe-api",
-		AuthorizationServerURL: "http://localhost:18080/auth/realms/camunda-platform/protocol/openid-connect/token",
-	})
-	if err != nil {
-		panic(err)
-	}
+	// Set default config and override with flags/env vars if provided.
+	app.initConfig()
+	app.initFlags()
+	app.initBpmnPath()
+	app.initSuitesPath()
+	app.initClient()
 
-	client, err := zbc.NewClient(&zbc.ClientConfig{
-		GatewayAddress:         "localhost:26500",
-		CredentialsProvider:    credsProvider,
-		UsePlaintextConnection: true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	app.client = client
-
-	app.initCredentials()
-
-	app.zeebe = zeebe.NewService(client, "http://localhost:8081", httpClient)
-	app.operate = operate.NewService("http://localhost:8081", httpClient)
+	// Initialize services using the config and client.
+	app.zeebe = zeebe.NewService(app.client, app.config.OperateBaseURL, httpClient)
+	app.operate = operate.NewService(app.config.OperateBaseURL, httpClient)
 
 	return app
 }
 
-func (app *App) initCredentials() {
-	credsProvider, err := zbc.NewOAuthCredentialsProvider(&zbc.OAuthProviderConfig{
+// initConfig sets basic default values.
+func (app *App) initConfig() {
+	app.config = config{
 		ClientID:               "zeebe",
 		ClientSecret:           "zecret",
 		Audience:               "zeebe-api",
-		AuthorizationServerURL: "http://localhost:18080/auth/realms/camunda-platform/protocol/openid-connect/token",
+		GatewayAddress:         "", // will be set in initFlags
+		AuthorizationServerURL: "",
+		OperateBaseURL:         "",
+		BpmnPath:               "",
+		SuitesPath:             "",
+	}
+}
+
+// initFlags reads command-line flags with defaults coming from environment variables.
+func (app *App) initFlags() {
+	// Get environment variables or use hard-coded defaults.
+	operateBaseURLDefault := os.Getenv("OPERATE_BASE_URL")
+	if operateBaseURLDefault == "" {
+		operateBaseURLDefault = "http://localhost:8081"
+	}
+	authServerURLDefault := os.Getenv("AUTHORIZATION_SERVER_URL")
+	if authServerURLDefault == "" {
+		authServerURLDefault = "http://localhost:18080/auth/realms/camunda-platform/protocol/openid-connect/token"
+	}
+	gatewayAddressDefault := os.Getenv("GATEWAY_ADDRESS")
+	if gatewayAddressDefault == "" {
+		gatewayAddressDefault = "localhost:26500"
+	}
+
+	// Define flags with these defaults.
+	operateBaseURLFlag := flag.String("operate", operateBaseURLDefault, "Operate base URL")
+	authServerURLFlag := flag.String("auth", authServerURLDefault, "Authorization server URL")
+	gatewayAddressFlag := flag.String("gateway", gatewayAddressDefault, "Gateway address")
+	flag.Parse()
+
+	app.config.OperateBaseURL = *operateBaseURLFlag
+	app.config.AuthorizationServerURL = *authServerURLFlag
+	app.config.GatewayAddress = *gatewayAddressFlag
+}
+
+// initBpmnPath sets the BPMN file path based on the OS.
+// If no BPMN path is passed, it defaults to:
+//   - Linux/Mac: $HOME/.config/flows-sentry/workflows/connector_test.bpmn
+//   - Windows:   %AppData%\local\flow-sentry\workflows\connector_test.bpmn
+func (app *App) initBpmnPath() {
+	if app.config.BpmnPath != "" {
+		return
+	}
+
+	var basePath string
+	if runtime.GOOS == "windows" {
+		basePath = filepath.Join(os.Getenv("AppData"), "local", "flow-sentry", "workflows")
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Failed to get user home directory: %v", err)
+		}
+		basePath = filepath.Join(home, ".config", "flows-sentry", "workflows")
+	}
+	// Default BPMN file name.
+	app.config.BpmnPath = filepath.Join(basePath, "connector_test.bpmn")
+}
+
+// initSuitesPath sets the test suites path based on the OS.
+// If none is passed, it defaults to:
+//   - Linux/Mac: $HOME/.config/flows-sentry/suites
+//   - Windows:   %AppData%\local\flow-sentry\suites
+func (app *App) initSuitesPath() {
+	if app.config.SuitesPath != "" {
+		return
+	}
+
+	var basePath string
+	if runtime.GOOS == "windows" {
+		basePath = filepath.Join(os.Getenv("AppData"), "local", "flow-sentry", "suites")
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Failed to get user home directory: %v", err)
+		}
+		basePath = filepath.Join(home, ".config", "flows-sentry", "suites")
+	}
+	app.config.SuitesPath = basePath
+}
+
+// initClient creates the OAuth credentials provider and Zeebe client.
+func (app *App) initClient() {
+	credsProvider, err := zbc.NewOAuthCredentialsProvider(&zbc.OAuthProviderConfig{
+		ClientID:               app.config.ClientID,
+		ClientSecret:           app.config.ClientSecret,
+		Audience:               app.config.Audience,
+		AuthorizationServerURL: app.config.AuthorizationServerURL,
 	})
 	if err != nil {
 		panic(err)
 	}
 
 	client, err := zbc.NewClient(&zbc.ClientConfig{
-		GatewayAddress:         "localhost:26500",
+		GatewayAddress:         app.config.GatewayAddress,
 		CredentialsProvider:    credsProvider,
 		UsePlaintextConnection: true,
 	})

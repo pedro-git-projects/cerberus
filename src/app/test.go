@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"reflect"
 	"time"
 
@@ -11,10 +12,15 @@ import (
 	"github.com/pedro-git-projects/flow-sentry/utils"
 )
 
-func (app *App) RunTestSuites(suites []TestSuite) {
+func (app *App) RunTestSuites() {
 	token := app.operate.GetOperateToken()
+	suites, err := app.loadTestSuites(app.config.SuitesPath)
+	if err != nil {
+		log.Fatalf("Failed to load test suites %v", err)
+	}
+	app.testSuites = suites
 
-	for _, suite := range suites {
+	for _, suite := range app.testSuites {
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
 
 		processInstanceKey := app.zeebe.StartProcess(suite.ProcessID, suite.TestCases[0].InitialVariables)
@@ -170,7 +176,7 @@ func (app *App) waitForProcessInstance(processInstanceKey int64, token string, m
 	return false
 }
 
-func (app *App) LoadTestSuites(filename string) ([]TestSuite, error) {
+func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
