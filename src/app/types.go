@@ -9,6 +9,8 @@ type TestCase struct {
 type TestSuite struct {
 	ProcessID      string     `toml:"process_id"`
 	WorkflowDeploy string     `toml:workflow_deploy,omitempty`
+	MessageName    string     `toml:"message_name,omitempty"`
+	MessageKey     string     `toml:"message_key,omitempty"`
 	TestCases      []TestCase `toml:"test_cases"`
 }
 

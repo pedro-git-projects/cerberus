@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/entities"
@@ -18,10 +19,11 @@ type EnrichedData struct {
 }
 
 func fetchExternalData(errorMessage string) (EnrichedData, error) {
-	url := fmt.Sprintf("http://localhost:1337/enrich?error=%s", errorMessage)
+	encodedError := url.QueryEscape(errorMessage)
+	urlStr := fmt.Sprintf("http://localhost:1337/enrich?error=%s", encodedError)
 	client := http.Client{Timeout: 5 * time.Second}
 
-	resp, err := client.Get(url)
+	resp, err := client.Get(urlStr)
 	if err != nil {
 		return EnrichedData{}, fmt.Errorf("failed to call enrichment API: %w", err)
 	}
@@ -80,7 +82,7 @@ func main() {
 			return
 		}
 
-		fmt.Println("Processing error type:", caughtErr)
+		fmt.Printf("Processing error type: %s (ProcessInstanceKey: %d)\n", caughtErr, job.ProcessInstanceKey)
 
 		enrichedData, err := fetchExternalData(caughtErr)
 		if err != nil {
@@ -101,7 +103,7 @@ func main() {
 		if _, err := cmd.Send(context.Background()); err != nil {
 			fmt.Println("Failed to complete job:", err)
 		} else {
-			fmt.Println("Job successfully completed with enriched data")
+			fmt.Printf("Job successfully completed with enriched data (ProcessInstanceKey: %d)\n", job.ProcessInstanceKey)
 		}
 	}).Open()
 
