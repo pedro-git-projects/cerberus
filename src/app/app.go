@@ -97,9 +97,9 @@ func (app *App) initFlags() {
 	operateBaseURLFlag := flag.String("operate", operateBaseURLDefault, "Operate base URL")
 	authServerURLFlag := flag.String("auth", authServerURLDefault, "Authorization server URL")
 	gatewayAddressFlag := flag.String("gateway", gatewayAddressDefault, "Gateway address")
-	flag.Parse()
 	testSuitesFlag := flag.String("testsuites", "all", "Comma-separated list of test suite process IDs to run, or 'all' to run every suite.")
 	deployWorkflowsFlag := flag.String("deployWorkflows", "none", "Workflow deployment option: 'none', 'suite', 'all', or comma-separated workflow file names.")
+	flag.Parse()
 
 	app.config.OperateBaseURL = *operateBaseURLFlag
 	app.config.AuthorizationServerURL = *authServerURLFlag

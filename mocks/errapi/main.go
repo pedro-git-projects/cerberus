@@ -27,6 +27,8 @@ func enrichData(w http.ResponseWriter, r *http.Request) {
 		enrichedInfo = "This error was unexpected. Please investigate."
 	case "EXPECTED":
 		enrichedInfo = "This error is known and can be handled gracefully."
+	case "we fucked up":
+		enrichedInfo = "This error was unexpected. Please investigate."
 	default:
 		enrichedInfo = "Unknown error type."
 	}

@@ -47,7 +47,7 @@ run-custom: build
 .PHONY: test
 test:
 	@echo "🧪 Running tests..."
-	cd $(SRC_DIR) && go test ./...
+	cd $(SRC_DIR) && go test -v ./...
 
 .PHONY: fmt
 fmt:
