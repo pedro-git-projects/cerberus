@@ -19,11 +19,7 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 	app.testSuites = suites
 
 	for _, suite := range app.testSuites {
-
-		// Process unique markers for per-field uniqueness.
-		suite.MessageKey = processUniqueMarkers(suite.MessageKey).(string)
 		fmt.Printf("Using unique MessageKey: %s\n", suite.MessageKey)
-
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
 
 		var processInstanceKey int64
@@ -49,13 +45,12 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 			// Check for any active instance with the same correlation key.
 			existingInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
 			if existingInstanceKey != 0 {
-				// Cancel the active instance.
 				if err := app.clearExistingInstance(suite.ProcessID, suite.MessageKey, token); err != nil {
 					fmt.Printf("❌ Error clearing existing instance: %v\n", err)
 					app.failedTests += len(suite.TestCases)
 					continue
 				}
-				// Now poll for the cancelled instance's state.
+				// Poll for the cancelled instance's state.
 				cancelWaitTimeout := time.Now().Add(10 * time.Second)
 				cleared := false
 				for {
@@ -75,7 +70,6 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 					time.Sleep(500 * time.Millisecond)
 				}
 				if !cleared {
-					// Skip this suite if the previous instance didn't clear.
 					app.failedTests += len(suite.TestCases)
 					continue
 				}
@@ -106,7 +100,7 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 				continue
 			}
 		} else {
-			// If no message is provided, start the process directly.
+			// Start the process directly if no message is provided.
 			processInstanceKey = app.zeebe.StartProcess(suite.ProcessID, suite.TestCases[0].InitialVariables)
 		}
 
@@ -267,11 +261,21 @@ func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 		return nil, err
 	}
 
-	var conf Config
-	if _, err := toml.Decode(string(data), &conf); err != nil {
+	var suiteConf Config
+	if _, err := toml.Decode(string(data), &suiteConf); err != nil {
 		return nil, err
 	}
-	return conf.TestSuites, nil
+
+	for si, suite := range suiteConf.TestSuites {
+		suiteConf.TestSuites[si].MessageKey = processUniqueMarkers(suite.MessageKey).(string)
+		for ci, testCase := range suite.TestCases {
+			// Process markers in any string fields inside your JSONMap.
+			suiteConf.TestSuites[si].TestCases[ci].InitialVariables = processUniqueMarkers(testCase.InitialVariables).(JSONMap)
+			suiteConf.TestSuites[si].TestCases[ci].ExpectedVariables = processUniqueMarkers(testCase.ExpectedVariables).(JSONMap)
+		}
+	}
+
+	return suiteConf.TestSuites, nil
 }
 
 func (app *App) discoverMessageStartedInstance(processID, correlationKey, token string) int64 {
@@ -337,6 +341,11 @@ func processUniqueMarkers(data interface{}) interface{} {
 		if strings.Contains(v, "#unique") {
 			uniqueSuffix := utils.GenerateUniqueSuffix()
 			return strings.ReplaceAll(v, "#unique", uniqueSuffix)
+		}
+		return v
+	case JSONMap:
+		for key, value := range v {
+			v[key] = processUniqueMarkers(value)
 		}
 		return v
 	case map[string]interface{}:
