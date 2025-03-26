@@ -31,6 +31,7 @@ type TestSuite struct {
 	WorkflowDeploy string     `toml:"workflow_deploy,omitempty" json:"workflow_deploy,omitempty"`
 	MessageName    string     `toml:"message_name,omitempty" json:"message_name,omitempty"`
 	MessageKey     string     `toml:"message_key,omitempty" json:"message_key,omitempty"`
+	APICall        *APICall   `toml:"api_call,omitempty" json:"api_call,omitempty"`
 	TestCases      []TestCase `toml:"test_cases" json:"test_cases"`
 }
 
