@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,33 +42,42 @@ func (app *App) startProcessInstance(suite TestSuite, token string) (int64, erro
 }
 
 func (app *App) startProcessViaAPICall(suite TestSuite, token string) (int64, error) {
-	fmt.Printf("📨 Starting workflow via API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
+	fmt.Printf("📨 Performing external API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
 
-	// Prepare initial variables.
-	initialVars := cloneJSONMap(suite.TestCases[0].InitialVariables)
-	initialVars["messageKey"] = suite.MessageKey
-	initialVars["apiCall"] = suite.APICall
-
-	variablesJSON, err := json.Marshal(initialVars)
+	// Marshal the API payload (the JSON the external system would send)
+	payloadBytes, err := json.Marshal(suite.APICall.Payload)
 	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to marshal initial variables: %v", err)
+		return 0, fmt.Errorf("❌ Failed to marshal API payload: %v", err)
 	}
 
-	ctx := context.Background()
-	cmdBuilder := app.zeebe.ZeebeClient.NewPublishMessageCommand().
-		MessageName(suite.MessageName).
-		CorrelationKey(suite.MessageKey)
-	cmd, err := cmdBuilder.VariablesFromString(string(variablesJSON))
+	req, err := http.NewRequest(suite.APICall.Method, suite.APICall.Endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to apply variables to message: %v", err)
-	}
-	if _, err = cmd.Send(ctx); err != nil {
-		return 0, fmt.Errorf("❌ Failed to publish API call message: %v", err)
+		return 0, fmt.Errorf("❌ Failed to build API request: %v", err)
 	}
 
+	// Set headers from the APICall struct
+	for key, value := range suite.APICall.Headers {
+		req.Header.Set(key, fmt.Sprintf("%v", value))
+	}
+
+	// Perform the external API call
+	resp, err := app.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("❌ Failed to perform external API request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("❌ Failed to read external API response: %v", err)
+	}
+	fmt.Printf("External API response: %s\n", string(body))
+
+	// The external API is responsible for triggering the process instance.
+	// Wait for Operate to find the process instance, using the test suite's messageKey.
 	processInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
 	if processInstanceKey == 0 {
-		return 0, fmt.Errorf("❌ Could not determine process instance key after API call start.")
+		return 0, fmt.Errorf("❌ Could not determine process instance key after external API call")
 	}
 	return processInstanceKey, nil
 }
