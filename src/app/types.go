@@ -32,6 +32,7 @@ type TestSuite struct {
 	MessageName    string     `toml:"message_name,omitempty" json:"message_name,omitempty"`
 	MessageKey     string     `toml:"message_key,omitempty" json:"message_key,omitempty"`
 	APICall        *APICall   `toml:"api_call,omitempty" json:"api_call,omitempty"`
+	APIMessageName string     `toml:"api_message_name,omitempty" json:"api_message_name,omitempty"`
 	TestCases      []TestCase `toml:"test_cases" json:"test_cases"`
 }
 

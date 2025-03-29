@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -73,8 +74,16 @@ func (app *App) startProcessViaAPICall(suite TestSuite, token string) (int64, er
 	}
 	fmt.Printf("External API response: %s\n", string(body))
 
-	// The external API is responsible for triggering the process instance.
-	// Wait for Operate to find the process instance, using the test suite's messageKey.
+	// Use the new discovery function if APIMessageName is provided.
+	if suite.APIMessageName != "" {
+		processInstanceKey := app.discoverAPIStartedInstance(suite.ProcessID, suite.APIMessageName, token)
+		if processInstanceKey == 0 {
+			return 0, fmt.Errorf("❌ Could not determine process instance key after external API call")
+		}
+		return processInstanceKey, nil
+	}
+
+	// Fallback to discover using MessageKey
 	processInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
 	if processInstanceKey == 0 {
 		return 0, fmt.Errorf("❌ Could not determine process instance key after external API call")
@@ -177,4 +186,125 @@ func cloneJSONMap(m JSONMap) JSONMap {
 		newMap[k] = v
 	}
 	return newMap
+}
+
+func (app *App) discoverAPIStartedInstance(processID, expectedAPIMessageName, token string) int64 {
+	payload := map[string]interface{}{
+		"filter": map[string]interface{}{
+			"bpmnProcessId": processID,
+			"state":         "ACTIVE",
+			"variables": map[string]interface{}{
+				"apiMessageName": expectedAPIMessageName,
+			},
+		},
+		"sort": []map[string]string{
+			{"field": "startDate", "order": "DESC"},
+		},
+		"size": 1,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/process-instances/search", app.config.OperateBaseURL), strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		log.Println("❌ Failed to build request to discover instance:", err)
+		return 0
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.httpClient.Do(req)
+	if err != nil {
+		log.Println("❌ Failed to send request to discover instance:", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ Error response discovering instance: %s\n", string(body))
+		return 0
+	}
+
+	var result struct {
+		Items []struct {
+			Key int64 `json:"key"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Println("❌ Failed to parse instance discovery response:", err)
+		return 0
+	}
+
+	if len(result.Items) == 0 {
+		log.Println("❌ No running instances found.")
+		return 0
+	}
+
+	return result.Items[0].Key
+}
+
+func (app *App) discoverInstanceAfterThreshold(processID string, threshold time.Time, token string) int64 {
+	payload := map[string]interface{}{
+		"filter": map[string]interface{}{
+			"bpmnProcessId": processID,
+			"state":         "ACTIVE",
+		},
+		"sort": []map[string]string{
+			{"field": "startDate", "order": "DESC"},
+		},
+		"size": 1,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/process-instances/search", app.config.OperateBaseURL), strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		log.Println("❌ Failed to build request to discover instance:", err)
+		return 0
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.httpClient.Do(req)
+	if err != nil {
+		log.Println("❌ Failed to send request to discover instance:", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ Error response discovering instance: %s\n", string(body))
+		return 0
+	}
+
+	var result struct {
+		Items []struct {
+			Key       int64  `json:"key"`
+			StartDate string `json:"startDate"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Println("❌ Failed to parse instance discovery response:", err)
+		return 0
+	}
+
+	if len(result.Items) == 0 {
+		log.Println("❌ No running instances found.")
+		return 0
+	}
+
+	latest := result.Items[0]
+	// Adjust this layout to match your Operate response.
+	// For example, if Operate returns "2025-03-26 16:46:04", use:
+	layout := "2006-01-02 15:04:05"
+	startTime, err := time.Parse(layout, latest.StartDate)
+	if err != nil {
+		log.Printf("❌ Failed to parse startDate: %v", err)
+		return 0
+	}
+	if startTime.Before(threshold) {
+		log.Printf("❌ Latest instance started at %v is before threshold %v", startTime, threshold)
+		return 0
+	}
+	return latest.Key
 }
