@@ -1,176 +1,76 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
+	"io/ioutil"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
+	"github.com/pedro-git-projects/flow-sentry/utils"
 )
 
 func (app *App) RunTestSuites(suites []TestSuite) {
-	token := app.operate.GetOperateToken()
 	app.testSuites = suites
 
 	for _, suite := range app.testSuites {
+		// Process unique markers.
+		suite.MessageKey = processUniqueMarkers(suite.MessageKey).(string)
 		fmt.Printf("Using unique MessageKey: %s\n", suite.MessageKey)
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
 
-		processInstanceKey, err := app.startProcessInstance(suite, token)
-		if err != nil {
-			fmt.Println(err)
-			app.failedTests += len(suite.TestCases)
-			continue
-		}
+		var resultVars map[string]interface{}
+		var err error
 
-		app.runTestCases(processInstanceKey, token, suite.TestCases)
-	}
+		if suite.MessageName != "" {
+			if suite.MessageKey == "" {
+				fmt.Println("❌ Message-based start requires 'message_key'.")
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
 
-	app.printSummary()
-}
+			// Inject the unique message key into the initial variables.
+			if suite.TestCases[0].InitialVariables == nil {
+				suite.TestCases[0].InitialVariables = make(JSONMap)
+			}
+			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
 
-func (app *App) startProcessInstance(suite TestSuite, token string) (int64, error) {
-	if suite.APICall != nil {
-		return app.startProcessViaAPICall(suite, token)
-	} else if suite.MessageName != "" {
-		return app.startProcessViaMessage(suite, token)
-	}
-	// Direct process start when no message is provided.
-	return app.zeebe.StartProcess(suite.ProcessID, suite.TestCases[0].InitialVariables), nil
-}
+			// Publish the message via gRPC.
+			fmt.Printf("📨 Publishing message '%s' with correlation key '%s'\n", suite.MessageName, suite.MessageKey)
+			if err := app.zeebe.PublishMessage(suite.MessageName, suite.MessageKey, suite.TestCases[0].InitialVariables); err != nil {
+				fmt.Printf("❌ Failed to publish message: %v\n", err)
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
 
-func (app *App) startProcessViaAPICall(suite TestSuite, token string) (int64, error) {
-	fmt.Printf("📨 Performing external API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
-
-	// Marshal the API payload (the JSON the external system would send)
-	payloadBytes, err := json.Marshal(suite.APICall.Payload)
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to marshal API payload: %v", err)
-	}
-
-	req, err := http.NewRequest(suite.APICall.Method, suite.APICall.Endpoint, strings.NewReader(string(payloadBytes)))
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to build API request: %v", err)
-	}
-
-	// Set headers from the APICall struct
-	for key, value := range suite.APICall.Headers {
-		req.Header.Set(key, fmt.Sprintf("%v", value))
-	}
-
-	// Perform the external API call
-	resp, err := app.httpClient.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to perform external API request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to read external API response: %v", err)
-	}
-	fmt.Printf("External API response: %s\n", string(body))
-
-	// Use the new discovery function if APIMessageName is provided.
-	if suite.APIMessageName != "" {
-		processInstanceKey := app.discoverAPIStartedInstance(suite.ProcessID, suite.APIMessageName, token)
-		if processInstanceKey == 0 {
-			return 0, fmt.Errorf("❌ Could not determine process instance key after external API call")
-		}
-		return processInstanceKey, nil
-	}
-
-	// Fallback to discover using MessageKey
-	processInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
-	if processInstanceKey == 0 {
-		return 0, fmt.Errorf("❌ Could not determine process instance key after external API call")
-	}
-	return processInstanceKey, nil
-}
-
-func (app *App) startProcessViaMessage(suite TestSuite, token string) (int64, error) {
-	fmt.Printf("📨 Starting workflow via message: %s\n", suite.MessageName)
-	if suite.MessageKey == "" {
-		return 0, fmt.Errorf("❌ Message-based start requires 'message_key'.")
-	}
-
-	// Prepare initial variables.
-	initialVars := cloneJSONMap(suite.TestCases[0].InitialVariables)
-	initialVars["messageKey"] = suite.MessageKey
-
-	variablesJSON, err := json.Marshal(initialVars)
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to marshal initial variables: %v", err)
-	}
-
-	// Check for any active instance with the same correlation key.
-	existingInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
-	if existingInstanceKey != 0 {
-		if err := app.clearExistingInstance(suite.ProcessID, suite.MessageKey, token); err != nil {
-			return 0, fmt.Errorf("❌ Error clearing existing instance: %v", err)
-		}
-		// Poll until the previous instance is cleared.
-		if !app.waitForInstanceClear(existingInstanceKey, token, 10*time.Second) {
-			return 0, fmt.Errorf("❌ Timeout waiting for previous instance to clear.")
-		}
-	}
-
-	// Publish the message.
-	ctx := context.Background()
-	cmdBuilder := app.zeebe.ZeebeClient.NewPublishMessageCommand().
-		MessageName(suite.MessageName).
-		CorrelationKey(suite.MessageKey)
-	cmd, err := cmdBuilder.VariablesFromString(string(variablesJSON))
-	if err != nil {
-		return 0, fmt.Errorf("❌ Failed to apply variables to message: %v", err)
-	}
-	if _, err = cmd.Send(ctx); err != nil {
-		return 0, fmt.Errorf("❌ Failed to publish message: %v", err)
-	}
-
-	processInstanceKey := app.discoverMessageStartedInstance(suite.ProcessID, suite.MessageKey, token)
-	if processInstanceKey == 0 {
-		return 0, fmt.Errorf("❌ Could not determine process instance key after message start.")
-	}
-	return processInstanceKey, nil
-}
-
-func (app *App) waitForInstanceClear(instanceKey int64, token string, timeout time.Duration) bool {
-	cancelWaitTimeout := time.Now().Add(timeout)
-	for {
-		procInstance, err := app.operate.FetchProcessInstance(instanceKey, token)
-		if err != nil {
-			fmt.Printf("Error fetching process instance: %v\n", err)
-			break
-		}
-		if procInstance.State != "ACTIVE" {
-			return true
-		}
-		if time.Now().After(cancelWaitTimeout) {
-			fmt.Println("❌ Timeout waiting for previous instance to clear.")
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return false
-}
-
-func (app *App) runTestCases(processInstanceKey int64, token string, testCases []TestCase) {
-	for _, testCase := range testCases {
-		app.totalTests++
-		fmt.Printf("\n=== 🧪 Validating Flow Node: %s ===\n", testCase.FlowNodeID)
-		if app.validateProcessExecution(processInstanceKey, token, testCase) {
-			app.passedTests++
+			// Wait for process result.
+			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)
+			if err != nil {
+				fmt.Printf("❌ Error waiting for process result: %v\n", err)
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
 		} else {
-			app.failedTests++
+			// Direct process start.
+			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)
+			if err != nil {
+				fmt.Printf("❌ Error waiting for process result: %v\n", err)
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
+		}
+
+		// Validate final variables against the expected values from the last test case.
+		lastTestCase := suite.TestCases[len(suite.TestCases)-1]
+		if validateVariables(lastTestCase.ExpectedVariables, resultVars) {
+			fmt.Printf("✅ PASSED: Process %s completed with expected variables.\n", suite.ProcessID)
+			app.passedTests += len(suite.TestCases)
+		} else {
+			fmt.Printf("❌ FAILED: Process %s variables mismatch.\nExpected: %v\nGot: %v\n", suite.ProcessID, lastTestCase.ExpectedVariables, resultVars)
+			app.failedTests += len(suite.TestCases)
 		}
 	}
-}
 
-func (app *App) printSummary() {
 	fmt.Println("\n================= 🏁 Test Summary =================")
 	fmt.Printf("Total Tests: %d | ✅ Passed: %d | ❌ Failed: %d\n", app.totalTests, app.passedTests, app.failedTests)
 	if app.failedTests > 0 {
@@ -180,131 +80,69 @@ func (app *App) printSummary() {
 	}
 }
 
-func cloneJSONMap(m JSONMap) JSONMap {
-	newMap := make(JSONMap)
-	for k, v := range m {
-		newMap[k] = v
+func validateVariables(expected, actual map[string]interface{}) bool {
+	for key, expectedValue := range expected {
+		actualValue, exists := actual[key]
+		if !exists {
+			fmt.Printf("❌ Missing expected variable: %s\n", key)
+			return false
+		}
+		// For simplicity, we compare the string representations.
+		if fmt.Sprintf("%v", expectedValue) != fmt.Sprintf("%v", actualValue) {
+			fmt.Printf("❌ Mismatch for variable '%s'. Expected: %v, Got: %v\n", key, expectedValue, actualValue)
+			return false
+		}
 	}
-	return newMap
+	return true
 }
 
-func (app *App) discoverAPIStartedInstance(processID, expectedAPIMessageName, token string) int64 {
-	payload := map[string]interface{}{
-		"filter": map[string]interface{}{
-			"bpmnProcessId": processID,
-			"state":         "ACTIVE",
-			"variables": map[string]interface{}{
-				"apiMessageName": expectedAPIMessageName,
-			},
-		},
-		"sort": []map[string]string{
-			{"field": "startDate", "order": "DESC"},
-		},
-		"size": 1,
+func processUniqueMarkers(data interface{}) interface{} {
+	switch v := data.(type) {
+	case string:
+		if strings.Contains(v, "#unique") {
+			uniqueSuffix := utils.GenerateUniqueSuffix()
+			return strings.ReplaceAll(v, "#unique", uniqueSuffix)
+		}
+		return v
+	case JSONMap:
+		for key, value := range v {
+			v[key] = processUniqueMarkers(value)
+		}
+		return v
+	case map[string]interface{}:
+		for key, value := range v {
+			v[key] = processUniqueMarkers(value)
+		}
+		return v
+	case []interface{}:
+		for i, value := range v {
+			v[i] = processUniqueMarkers(value)
+		}
+		return v
+	default:
+		return v
 	}
-
-	payloadBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/process-instances/search", app.config.OperateBaseURL), strings.NewReader(string(payloadBytes)))
-	if err != nil {
-		log.Println("❌ Failed to build request to discover instance:", err)
-		return 0
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.httpClient.Do(req)
-	if err != nil {
-		log.Println("❌ Failed to send request to discover instance:", err)
-		return 0
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("❌ Error response discovering instance: %s\n", string(body))
-		return 0
-	}
-
-	var result struct {
-		Items []struct {
-			Key int64 `json:"key"`
-		} `json:"items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Println("❌ Failed to parse instance discovery response:", err)
-		return 0
-	}
-
-	if len(result.Items) == 0 {
-		log.Println("❌ No running instances found.")
-		return 0
-	}
-
-	return result.Items[0].Key
 }
 
-func (app *App) discoverInstanceAfterThreshold(processID string, threshold time.Time, token string) int64 {
-	payload := map[string]interface{}{
-		"filter": map[string]interface{}{
-			"bpmnProcessId": processID,
-			"state":         "ACTIVE",
-		},
-		"sort": []map[string]string{
-			{"field": "startDate", "order": "DESC"},
-		},
-		"size": 1,
-	}
-
-	payloadBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/process-instances/search", app.config.OperateBaseURL), strings.NewReader(string(payloadBytes)))
+func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Println("❌ Failed to build request to discover instance:", err)
-		return 0
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := app.httpClient.Do(req)
-	if err != nil {
-		log.Println("❌ Failed to send request to discover instance:", err)
-		return 0
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("❌ Error response discovering instance: %s\n", string(body))
-		return 0
+		return nil, err
 	}
 
-	var result struct {
-		Items []struct {
-			Key       int64  `json:"key"`
-			StartDate string `json:"startDate"`
-		} `json:"items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Println("❌ Failed to parse instance discovery response:", err)
-		return 0
+	var suiteConf Config
+	if _, err := toml.Decode(string(data), &suiteConf); err != nil {
+		return nil, err
 	}
 
-	if len(result.Items) == 0 {
-		log.Println("❌ No running instances found.")
-		return 0
+	for si, suite := range suiteConf.TestSuites {
+		suiteConf.TestSuites[si].MessageKey = processUniqueMarkers(suite.MessageKey).(string)
+		for ci, testCase := range suite.TestCases {
+			// Process markers in any string fields inside your JSONMap.
+			suiteConf.TestSuites[si].TestCases[ci].InitialVariables = processUniqueMarkers(testCase.InitialVariables).(JSONMap)
+			suiteConf.TestSuites[si].TestCases[ci].ExpectedVariables = processUniqueMarkers(testCase.ExpectedVariables).(JSONMap)
+		}
 	}
 
-	latest := result.Items[0]
-	// Adjust this layout to match your Operate response.
-	// For example, if Operate returns "2025-03-26 16:46:04", use:
-	layout := "2006-01-02 15:04:05"
-	startTime, err := time.Parse(layout, latest.StartDate)
-	if err != nil {
-		log.Printf("❌ Failed to parse startDate: %v", err)
-		return 0
-	}
-	if startTime.Before(threshold) {
-		log.Printf("❌ Latest instance started at %v is before threshold %v", startTime, threshold)
-		return 0
-	}
-	return latest.Key
+	return suiteConf.TestSuites, nil
 }
