@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/worker"
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
 	"github.com/pedro-git-projects/flow-sentry/zeebe"
 )
@@ -25,12 +26,18 @@ type config struct {
 	DeployWorkflowsFlag    string
 }
 
+type listener struct {
+	executionChan   chan map[string]interface{}
+	executionWorker worker.JobWorker
+}
+
 type App struct {
 	totalTests  int
 	passedTests int
 	failedTests int
 
 	config     config
+	listener   listener
 	client     zbc.Client
 	testSuites []TestSuite
 
@@ -46,12 +53,14 @@ func New() *App {
 
 	// Set default config and override with flags/env vars if provided.
 	app.initConfig()
+	app.initListener()
 	app.initFlags()
 	app.initBpmnPath()
 	app.initSuitesPath()
 	app.initClient()
 
 	app.zeebe = zeebe.NewService(app.client)
+	app.startExecutionListenerWorker()
 
 	return app
 }
@@ -68,6 +77,12 @@ func (app *App) initConfig() {
 		SuitesPath:             "",
 		TestSuitesFlag:         "", // will be set in initFlags
 		DeployWorkflowsFlag:    "", // will be set in initFlags
+	}
+}
+
+func (app *App) initListener() {
+	app.listener = listener{
+		executionChan: make(chan map[string]interface{}, 1),
 	}
 }
 

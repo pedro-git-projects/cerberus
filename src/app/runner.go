@@ -1,8 +1,10 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"strings"
 	"time"
 
@@ -22,20 +24,41 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 		var resultVars map[string]interface{}
 		var err error
 
-		if suite.MessageName != "" {
+		// If an API call is defined, use it to start the process.
+		if suite.APICall != nil {
+			// Ensure initial variables are allocated.
+			if suite.TestCases[0].InitialVariables == nil {
+				suite.TestCases[0].InitialVariables = make(JSONMap)
+			}
+			// Inject the unique message key so that the API call’s payload can be correlated.
+			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
+
+			fmt.Printf("📨 Performing external API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
+			if err = app.performAPICall(suite.APICall); err != nil {
+				fmt.Printf("❌ Failed to perform API call: %v\n", err)
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
+
+			// Use the subscription mechanism (via the execution listener) to retrieve the process variables.
+			resultVars, err = app.subscribeToExecutionListener(5 * time.Minute)
+			if err != nil {
+				fmt.Printf("❌ Error waiting for execution listener notification: %v\n", err)
+				app.failedTests += len(suite.TestCases)
+				continue
+			}
+		} else if suite.MessageName != "" {
+			// Message-based start without an API call.
 			if suite.MessageKey == "" {
 				fmt.Println("❌ Message-based start requires 'message_key'.")
 				app.failedTests += len(suite.TestCases)
 				continue
 			}
-
-			// Inject the unique message key into the initial variables.
 			if suite.TestCases[0].InitialVariables == nil {
 				suite.TestCases[0].InitialVariables = make(JSONMap)
 			}
 			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
 
-			// Publish the message via gRPC.
 			fmt.Printf("📨 Publishing message '%s' with correlation key '%s'\n", suite.MessageName, suite.MessageKey)
 			if err := app.zeebe.PublishMessage(suite.MessageName, suite.MessageKey, suite.TestCases[0].InitialVariables); err != nil {
 				fmt.Printf("❌ Failed to publish message: %v\n", err)
@@ -43,15 +66,14 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 				continue
 			}
 
-			// Wait for process result.
-			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)
+			resultVars, err = app.subscribeToExecutionListener(5 * time.Minute)
 			if err != nil {
-				fmt.Printf("❌ Error waiting for process result: %v\n", err)
+				fmt.Printf("❌ Error waiting for execution listener notification: %v\n", err)
 				app.failedTests += len(suite.TestCases)
 				continue
 			}
 		} else {
-			// Direct process start.
+			// Direct process start (non message-based)
 			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)
 			if err != nil {
 				fmt.Printf("❌ Error waiting for process result: %v\n", err)
@@ -145,4 +167,72 @@ func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 	}
 
 	return suiteConf.TestSuites, nil
+}
+
+// performAPICall sends an HTTP request as defined in the APICall configuration.
+func (app *App) performAPICall(apiCall *APICall) error {
+	// Convert payload to a string.
+	var payloadStr string
+	payloadValue := interface{}(apiCall.Payload) // wrap in interface{}
+	switch p := payloadValue.(type) {
+	case string:
+		payloadStr = p
+	case map[string]interface{}:
+		b, err := json.Marshal(p)
+		if err != nil {
+			return fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		payloadStr = string(b)
+	default:
+		b, err := json.Marshal(p)
+		if err != nil {
+			return fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		payloadStr = string(b)
+	}
+
+	req, err := http.NewRequest(apiCall.Method, apiCall.Endpoint, strings.NewReader(payloadStr))
+	if err != nil {
+		return err
+	}
+
+	// Convert headers to a map and set them.
+	headersValue := interface{}(apiCall.Headers) // wrap in interface{}
+	switch h := headersValue.(type) {
+	case string:
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(h), &headers); err != nil {
+			return fmt.Errorf("failed to unmarshal headers string: %w", err)
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+	case map[string]interface{}:
+		for key, value := range h {
+			req.Header.Set(key, fmt.Sprintf("%v", value))
+		}
+	default:
+		b, err := json.Marshal(h)
+		if err != nil {
+			return fmt.Errorf("failed to marshal headers: %w", err)
+		}
+		var headers map[string]string
+		if err := json.Unmarshal(b, &headers); err != nil {
+			return fmt.Errorf("failed to unmarshal headers: %w", err)
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+	}
+
+	resp, err := app.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	return nil
 }

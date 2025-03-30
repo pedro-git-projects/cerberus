@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_0ldas7f" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.33.1" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.6.0">
+  <bpmn:process id="echo_process" name="Echo Proccess" isExecutable="true">
+    <bpmn:extensionElements />
+    <bpmn:sequenceFlow id="Flow_0qi5zuo" sourceRef="StartEvent_1" targetRef="Activity_0u4uv56" />
+    <bpmn:serviceTask id="Activity_0u4uv56" name="Handle Echo">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="echo" />
+        <zeebe:ioMapping>
+          <zeebe:input source="=echo" target="echo" />
+        </zeebe:ioMapping>
+        <zeebe:executionListeners>
+          <zeebe:executionListener eventType="start" type="completionStatus" />
+        </zeebe:executionListeners>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_0qi5zuo</bpmn:incoming>
+      <bpmn:outgoing>Flow_0w5b7pi</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:extensionElements />
+      <bpmn:outgoing>Flow_0qi5zuo</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_0nhbwdq" messageRef="Message_228spe4" />
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_0w5b7pi" sourceRef="Activity_0u4uv56" targetRef="Event_020j8hd" />
+    <bpmn:intermediateCatchEvent id="Event_020j8hd">
+      <bpmn:incoming>Flow_0w5b7pi</bpmn:incoming>
+      <bpmn:outgoing>Flow_0ld3ycu</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_0gbok46">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT60S</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="Event_1qa1urq" name="Termination">
+      <bpmn:incoming>Flow_0ld3ycu</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0ld3ycu" sourceRef="Event_020j8hd" targetRef="Event_1qa1urq" />
+  </bpmn:process>
+  <bpmn:message id="Message_228spe4" name="Echo" />
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="echo_process">
+      <bpmndi:BPMNShape id="Activity_1l9bt9y_di" bpmnElement="Activity_0u4uv56">
+        <dc:Bounds x="270" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1xi684p_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="182" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_19aeeqr_di" bpmnElement="Event_020j8hd">
+        <dc:Bounds x="422" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1qa1urq_di" bpmnElement="Event_1qa1urq">
+        <dc:Bounds x="512" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="502" y="145" width="57" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0qi5zuo_di" bpmnElement="Flow_0qi5zuo">
+        <di:waypoint x="218" y="120" />
+        <di:waypoint x="270" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0w5b7pi_di" bpmnElement="Flow_0w5b7pi">
+        <di:waypoint x="370" y="120" />
+        <di:waypoint x="422" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0ld3ycu_di" bpmnElement="Flow_0ld3ycu">
+        <di:waypoint x="458" y="120" />
+        <di:waypoint x="512" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

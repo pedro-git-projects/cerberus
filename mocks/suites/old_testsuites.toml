@@ -1,0 +1,31 @@
+# test suite: error handling path
+[[test_suites]]
+process_id = "Process_02q4u98"
+
+[[test_suites.test_cases]]
+flow_node_id = "Template Connector Call"
+initial_variables = { username = "nilptr", token = "very_secret_token", message = "fail - will this message reach zeebe?" }
+expected_variables = { message = "fail - will this message reach zeebe?", token = "very_secret_token", username = "nilptr" }
+
+[[test_suites.test_cases]]
+flow_node_id = "Deal with error"
+expected_variables = { caughtErr = "EXPECTED", message = "fail - will this message reach zeebe?", token = "very_secret_token", username = "nilptr" }
+
+[[test_suites.test_cases]]
+flow_node_id = "Borked Termination"
+expected_variables = { caughtErr = "EXPECTED", message = "fail - will this message reach zeebe?", token = "very_secret_token", username = "nilptr", enriched_info = "This error is known and can be handled gracefully." }
+
+
+# test suite: success path
+[[test_suites]]
+process_id = "Process_02q4u98"
+
+[[test_suites.test_cases]]
+flow_node_id = "Template Connector Call"
+initial_variables = { username = "nilptr", token = "very_secret_token", message = "will this message reach zeebe?" }
+expected_variables = { message = "will this message reach zeebe?", token = "very_secret_token", username = "nilptr" }
+
+[[test_suites.test_cases]]
+flow_node_id = "Successful Termination"
+expected_variables = { message = "will this message reach zeebe?", token = "very_secret_token", username = "nilptr", echo = { myProperty = "Message received: will this message reach zeebe?" } }
+
