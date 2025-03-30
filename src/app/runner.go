@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,7 +18,7 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 	app.testSuites = suites
 
 	for _, suite := range app.testSuites {
-		// Process unique markers.
+		// Process unique markers on the test suite level.
 		suite.MessageKey = processUniqueMarkers(suite.MessageKey).(string)
 		fmt.Printf("Using unique MessageKey: %s\n", suite.MessageKey)
 		fmt.Printf("\n=== 🚀 Running Test Suite for Process: %s ===\n", suite.ProcessID)
@@ -30,17 +32,18 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 			if suite.TestCases[0].InitialVariables == nil {
 				suite.TestCases[0].InitialVariables = make(JSONMap)
 			}
-			// Inject the unique message key so that the API call’s payload can be correlated.
+			// Inject the unique message key into initial variables.
 			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
 
 			fmt.Printf("📨 Performing external API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
-			if err = app.performAPICall(suite.APICall); err != nil {
+			// Pass initial variables to performAPICall so they are merged into the payload.
+			if err = app.performAPICall(suite.APICall, suite.TestCases[0].InitialVariables); err != nil {
 				fmt.Printf("❌ Failed to perform API call: %v\n", err)
 				app.failedTests += len(suite.TestCases)
 				continue
 			}
 
-			// Use the subscription mechanism (via the execution listener) to retrieve the process variables.
+			// Subscribe to the execution listener to retrieve process variables.
 			resultVars, err = app.subscribeToExecutionListener(5 * time.Minute)
 			if err != nil {
 				fmt.Printf("❌ Error waiting for execution listener notification: %v\n", err)
@@ -73,7 +76,7 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 				continue
 			}
 		} else {
-			// Direct process start (non message-based)
+			// Direct process start (non message-based).
 			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)
 			if err != nil {
 				fmt.Printf("❌ Error waiting for process result: %v\n", err)
@@ -169,36 +172,67 @@ func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 	return suiteConf.TestSuites, nil
 }
 
-// performAPICall sends an HTTP request as defined in the APICall configuration.
-func (app *App) performAPICall(apiCall *APICall) error {
-	// Convert payload to a string.
+func (app *App) performAPICall(apiCall *APICall, initialVars map[string]interface{}) error {
+	// Convert the payload to a string.
 	var payloadStr string
-	payloadValue := interface{}(apiCall.Payload) // wrap in interface{}
-	switch p := payloadValue.(type) {
+	switch p := any(apiCall.Payload).(type) {
 	case string:
 		payloadStr = p
 	case map[string]interface{}:
 		b, err := json.Marshal(p)
 		if err != nil {
-			return fmt.Errorf("failed to marshal payload: %w", err)
+			return fmt.Errorf("failed to marshal payload (map): %w", err)
 		}
 		payloadStr = string(b)
 	default:
 		b, err := json.Marshal(p)
 		if err != nil {
-			return fmt.Errorf("failed to marshal payload: %w", err)
+			return fmt.Errorf("failed to marshal payload (default): %w", err)
 		}
 		payloadStr = string(b)
 	}
 
-	req, err := http.NewRequest(apiCall.Method, apiCall.Endpoint, strings.NewReader(payloadStr))
+	// Unmarshal the payload string into a map.
+	var payloadMap map[string]interface{}
+	if err := json.Unmarshal([]byte(payloadStr), &payloadMap); err != nil {
+		return fmt.Errorf("failed to unmarshal payload into map: %w", err)
+	}
+
+	// Merge initialVars into payloadMap.
+	for key, value := range initialVars {
+		payloadMap[key] = value
+	}
+
+	// Build a context map for substitution.
+	contextMap := make(map[string]string)
+	if msgKey, exists := initialVars["messageKey"]; exists {
+		if keyStr, ok := msgKey.(string); ok {
+			contextMap["echo_correlation_key"] = keyStr
+		}
+	}
+
+	// Substitute unique markers and placeholders in payloadMap.
+	substituted := substituteUniqueAndVariablesWithContext(payloadMap, contextMap)
+	finalPayloadMap, ok := substituted.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("substitution did not return a map[string]interface{}")
+	}
+	payloadMap = finalPayloadMap
+
+	// Marshal the final payload.
+	mergedPayload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal merged payload: %w", err)
+	}
+	log.Printf("Merged payload: %s", string(mergedPayload))
+
+	req, err := http.NewRequest(apiCall.Method, apiCall.Endpoint, strings.NewReader(string(mergedPayload)))
 	if err != nil {
 		return err
 	}
 
-	// Convert headers to a map and set them.
-	headersValue := interface{}(apiCall.Headers) // wrap in interface{}
-	switch h := headersValue.(type) {
+	// Process headers.
+	switch h := any(apiCall.Headers).(type) {
 	case string:
 		var headers map[string]string
 		if err := json.Unmarshal([]byte(h), &headers); err != nil {
@@ -235,4 +269,118 @@ func (app *App) performAPICall(apiCall *APICall) error {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// substituteUniqueAndVariables traverses a JSONMap (map[string]interface{})
+// and substitutes any strings containing "#unique" with a generated unique value,
+// and then replaces any placeholders of the form "${var}" with the value from the context.
+func substituteUniqueAndVariables(m map[string]interface{}) map[string]interface{} {
+	// context to store generated variables (e.g. for keys with "#unique")
+	contextMap := make(map[string]string)
+
+	// First pass: generate unique values for any key whose value contains "#unique".
+	var generateUnique func(data interface{}) interface{}
+	generateUnique = func(data interface{}) interface{} {
+		switch v := data.(type) {
+		case string:
+			// If the string contains "#unique", replace it.
+			if strings.Contains(v, "#unique") {
+				// If the entire value is exactly "#unique" or contains a pattern, generate a unique suffix.
+				// Here we simply replace "#unique" with a generated suffix.
+				unique := utils.GenerateUniqueSuffix()
+				return strings.ReplaceAll(v, "#unique", unique)
+			}
+			return v
+		case map[string]interface{}:
+			for key, value := range v {
+				// If the value is a string and contains "#unique", generate a unique value and store it in the context.
+				if s, ok := value.(string); ok && strings.Contains(s, "#unique") {
+					uniqueVal := strings.ReplaceAll(s, "#unique", utils.GenerateUniqueSuffix())
+					v[key] = uniqueVal
+					contextMap[key] = uniqueVal
+				} else {
+					v[key] = generateUnique(value)
+				}
+			}
+			return v
+		case []interface{}:
+			for i, item := range v {
+				v[i] = generateUnique(item)
+			}
+			return v
+		default:
+			return data
+		}
+	}
+
+	// Second pass: substitute placeholders in strings.
+	placeholderRegexp := regexp.MustCompile(`\$\{([^}]+)\}`)
+	var substitutePlaceholders func(data interface{}) interface{}
+	substitutePlaceholders = func(data interface{}) interface{} {
+		switch v := data.(type) {
+		case string:
+			// Replace every occurrence of ${key} with contextMap[key] if available.
+			return placeholderRegexp.ReplaceAllStringFunc(v, func(match string) string {
+				// match is like "${key}", extract key:
+				key := placeholderRegexp.FindStringSubmatch(match)[1]
+				if val, ok := contextMap[key]; ok {
+					return val
+				}
+				// If not found in context, leave it unchanged.
+				return match
+			})
+		case map[string]interface{}:
+			for key, value := range v {
+				v[key] = substitutePlaceholders(value)
+			}
+			return v
+		case []interface{}:
+			for i, item := range v {
+				v[i] = substitutePlaceholders(item)
+			}
+			return v
+		default:
+			return data
+		}
+	}
+
+	generateUnique(m)
+	substitutePlaceholders(m)
+	return m
+}
+
+// substituteUniqueAndVariablesWithContext recursively walks data (which may be a map or slice)
+// and replaces any string containing "#unique" with a generated unique value. It also replaces
+// placeholders of the form "${var}" with the value from contextMap.
+func substituteUniqueAndVariablesWithContext(data interface{}, contextMap map[string]string) interface{} {
+	placeholderRegexp := regexp.MustCompile(`\$\{([^}]+)\}`)
+	switch v := data.(type) {
+	case string:
+		// First, if the string contains "#unique", generate a unique value.
+		if strings.Contains(v, "#unique") {
+			unique := utils.GenerateUniqueSuffix()
+			v = strings.ReplaceAll(v, "#unique", unique)
+			// Optionally, if you want to capture this in context, you can do so here.
+		}
+		// Replace placeholders: e.g. "${echo_correlation_key}".
+		return placeholderRegexp.ReplaceAllStringFunc(v, func(match string) string {
+			key := placeholderRegexp.FindStringSubmatch(match)[1]
+			if val, ok := contextMap[key]; ok {
+				return val
+			}
+			return match
+		})
+	case map[string]interface{}:
+		for key, val := range v {
+			v[key] = substituteUniqueAndVariablesWithContext(val, contextMap)
+		}
+		return v
+	case []interface{}:
+		for i, item := range v {
+			v[i] = substituteUniqueAndVariablesWithContext(item, contextMap)
+		}
+		return v
+	default:
+		return v
+	}
 }

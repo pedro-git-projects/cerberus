@@ -19,8 +19,8 @@ var (
 )
 
 // echoHandler processes incoming HTTP POST requests.
-// It publishes a Zeebe message (with message name "Echo") to start a process instance,
-// then sends the payload to echoChan for the job handler to use.
+// It parses the payload, extracts a unique correlation key if present,
+// and publishes a Zeebe message using that key.
 func echoHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
@@ -34,18 +34,31 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	payload := string(body)
-
-	// Publish a message to Zeebe to start the process instance.
-	// Here, we use a fixed correlation key. In a real system, you might generate one.
-	correlationKey := "echo-correlation-key"
-	vars := map[string]interface{}{
-		"receivedPayload": payload,
+	// Unmarshal payload to extract fields.
+	var payloadData map[string]interface{}
+	if err := json.Unmarshal(body, &payloadData); err != nil {
+		http.Error(w, "Failed to unmarshal payload", http.StatusBadRequest)
+		return
 	}
-	varsJSON, err := json.Marshal(vars)
+
+	// Extract the correlation key from payload.
+	// Try "messageKey" first; if not found, then "message-key".
+	correlationKey := ""
+	if val, ok := payloadData["messageKey"].(string); ok && val != "" {
+		correlationKey = val
+	} else if val, ok := payloadData["message-key"].(string); ok && val != "" {
+		correlationKey = val
+	} else {
+		correlationKey = "echo-correlation-key" // fallback value
+	}
+	log.Printf("Using correlation key: %s", correlationKey)
+
+	// Marshal the payload back to JSON.
+	varsJSON, err := json.Marshal(payloadData)
 	if err != nil {
 		log.Printf("Failed to marshal message variables: %v", err)
 	} else {
+		// Publish a message to Zeebe with the extracted correlation key.
 		cmd, err := zeebeClient.NewPublishMessageCommand().
 			MessageName("Echo").
 			CorrelationKey(correlationKey).
@@ -64,10 +77,10 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Now send the payload to the channel for the job handler.
-	echoChan <- payload
+	// Send the raw payload to the channel for downstream job processing.
+	echoChan <- string(body)
 
-	log.Println("Received echo payload via HTTP:", payload)
+	log.Printf("Received echo payload via HTTP: %s", string(body))
 	w.WriteHeader(http.StatusOK)
 	w.Write(body)
 }
