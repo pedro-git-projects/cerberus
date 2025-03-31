@@ -37,5 +37,6 @@ type TestSuite struct {
 }
 
 type Config struct {
-	TestSuites []TestSuite `toml:"test_suites" json:"test_suites`
+	Variables  map[string]string `toml:"variables" json:"variables"`
+	TestSuites []TestSuite       `toml:"test_suites" json:"test_suites`
 }

@@ -36,10 +36,12 @@ type App struct {
 	passedTests int
 	failedTests int
 
-	config     config
-	listener   listener
-	client     zbc.Client
+	config   config
+	listener listener
+	client   zbc.Client
+
 	testSuites []TestSuite
+	variables  map[string]string `toml:"variables" json:"variables"`
 
 	httpClient *http.Client
 	zeebe      *zeebe.ZeebeService
@@ -49,6 +51,7 @@ func New() *App {
 	httpClient := &http.Client{}
 	app := &App{
 		httpClient: httpClient,
+		variables:  make(map[string]string),
 	}
 
 	// Set default config and override with flags/env vars if provided.

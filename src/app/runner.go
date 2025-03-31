@@ -37,7 +37,7 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 
 			fmt.Printf("📨 Performing external API call: %s %s\n", suite.APICall.Method, suite.APICall.Endpoint)
 			// Pass initial variables to performAPICall so they are merged into the payload.
-			if err = app.performAPICall(suite.APICall, suite.TestCases[0].InitialVariables); err != nil {
+			if err = app.performAPICall(suite.APICall, suite.TestCases[0].InitialVariables, app.variables); err != nil {
 				fmt.Printf("❌ Failed to perform API call: %v\n", err)
 				app.failedTests += len(suite.TestCases)
 				continue
@@ -149,30 +149,61 @@ func processUniqueMarkers(data interface{}) interface{} {
 	}
 }
 
+// loadTestSuites loads the test suites from a given filename.
+// It decodes the TOML file into a Config, then for each test suite, it:
+//  1. Processes unique markers in MessageKey.
+//  2. Substitutes placeholders in MessageKey and in each test case's initial variables
+//     using the global Variables from the config.
 func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	var suiteConf Config
-	if _, err := toml.Decode(string(data), &suiteConf); err != nil {
+	var cfg Config
+	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return nil, err
 	}
 
-	for si, suite := range suiteConf.TestSuites {
-		suiteConf.TestSuites[si].MessageKey = processUniqueMarkers(suite.MessageKey).(string)
+	// For each test suite, substitute global variables.
+	for si, suite := range cfg.TestSuites {
+		// Process unique markers for the suite message key.
+		processedKey := processUniqueMarkers(suite.MessageKey).(string)
+		// Substitute any placeholders using the global variables.
+		processedKey = substitutePlaceholders(processedKey, cfg.Variables)
+		cfg.TestSuites[si].MessageKey = processedKey
+
+		// For each test case, process initial variables and expected variables.
 		for ci, testCase := range suite.TestCases {
-			// Process markers in any string fields inside your JSONMap.
-			suiteConf.TestSuites[si].TestCases[ci].InitialVariables = processUniqueMarkers(testCase.InitialVariables).(JSONMap)
-			suiteConf.TestSuites[si].TestCases[ci].ExpectedVariables = processUniqueMarkers(testCase.ExpectedVariables).(JSONMap)
+			// Process unique markers on initial variables.
+			procInit := processUniqueMarkers(testCase.InitialVariables).(JSONMap)
+			// For each string value in initial variables, substitute global placeholders.
+			for key, value := range procInit {
+				if strVal, ok := value.(string); ok {
+					procInit[key] = substitutePlaceholders(strVal, cfg.Variables)
+				}
+			}
+			cfg.TestSuites[si].TestCases[ci].InitialVariables = procInit
+
+			// Similarly, process expected variables.
+			procExp := processUniqueMarkers(testCase.ExpectedVariables).(JSONMap)
+			for key, value := range procExp {
+				if strVal, ok := value.(string); ok {
+					procExp[key] = substitutePlaceholders(strVal, cfg.Variables)
+				}
+			}
+			cfg.TestSuites[si].TestCases[ci].ExpectedVariables = procExp
 		}
 	}
 
-	return suiteConf.TestSuites, nil
+	return cfg.TestSuites, nil
 }
 
-func (app *App) performAPICall(apiCall *APICall, initialVars map[string]interface{}) error {
+// performAPICall sends an HTTP request as defined in the APICall configuration.
+// It merges the provided initialVars into the API payload, then substitutes any "#unique"
+// markers and placeholders (e.g. "${echo_correlation_key}") using the provided globalVars
+// combined with any local context (from initialVars).
+func (app *App) performAPICall(apiCall *APICall, initialVars map[string]interface{}, globalVars map[string]string) error {
 	// Convert the payload to a string.
 	var payloadStr string
 	switch p := any(apiCall.Payload).(type) {
@@ -203,12 +234,21 @@ func (app *App) performAPICall(apiCall *APICall, initialVars map[string]interfac
 		payloadMap[key] = value
 	}
 
-	// Build a context map for substitution.
-	contextMap := make(map[string]string)
+	// Build a local context map from initialVars.
+	localContext := make(map[string]string)
 	if msgKey, exists := initialVars["messageKey"]; exists {
 		if keyStr, ok := msgKey.(string); ok {
-			contextMap["echo_correlation_key"] = keyStr
+			localContext["echo_correlation_key"] = keyStr
 		}
+	}
+
+	// Merge globalVars and localContext (local overrides global).
+	contextMap := make(map[string]string)
+	for k, v := range globalVars {
+		contextMap[k] = v
+	}
+	for k, v := range localContext {
+		contextMap[k] = v
 	}
 
 	// Substitute unique markers and placeholders in payloadMap.
@@ -226,6 +266,7 @@ func (app *App) performAPICall(apiCall *APICall, initialVars map[string]interfac
 	}
 	log.Printf("Merged payload: %s", string(mergedPayload))
 
+	// Build HTTP request.
 	req, err := http.NewRequest(apiCall.Method, apiCall.Endpoint, strings.NewReader(string(mergedPayload)))
 	if err != nil {
 		return err
@@ -383,4 +424,15 @@ func substituteUniqueAndVariablesWithContext(data interface{}, contextMap map[st
 	default:
 		return v
 	}
+}
+
+func substitutePlaceholders(s string, contextMap map[string]string) string {
+	placeholderRegexp := regexp.MustCompile(`\$\{([^}]+)\}`)
+	return placeholderRegexp.ReplaceAllStringFunc(s, func(match string) string {
+		key := placeholderRegexp.FindStringSubmatch(match)[1]
+		if val, ok := contextMap[key]; ok {
+			return val
+		}
+		return match
+	})
 }
