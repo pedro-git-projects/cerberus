@@ -11,6 +11,7 @@ import (
 
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/worker"
 	"github.com/camunda-community-hub/zeebe-client-go/v8/pkg/zbc"
+	"github.com/pedro-git-projects/flow-sentry/operate"
 	"github.com/pedro-git-projects/flow-sentry/zeebe"
 )
 
@@ -24,6 +25,7 @@ type config struct {
 	SuitesPath             string
 	TestSuitesFlag         string
 	DeployWorkflowsFlag    string
+	OperateBaseURL         string
 }
 
 type listener struct {
@@ -44,6 +46,7 @@ type App struct {
 	variables  map[string]string `toml:"variables" json:"variables"`
 
 	httpClient *http.Client
+	operate    *operate.OperateService
 	zeebe      *zeebe.ZeebeService
 }
 
@@ -63,6 +66,7 @@ func New() *App {
 	app.initClient()
 
 	app.zeebe = zeebe.NewService(app.client)
+	app.operate = operate.NewService(app.config.OperateBaseURL, httpClient)
 	app.startExecutionListenerWorker()
 
 	return app
@@ -76,6 +80,7 @@ func (app *App) initConfig() {
 		Audience:               "zeebe-api",
 		GatewayAddress:         "", // will be set in initFlags
 		AuthorizationServerURL: "",
+		OperateBaseURL:         "",
 		BpmnPath:               "",
 		SuitesPath:             "",
 		TestSuitesFlag:         "", // will be set in initFlags
@@ -100,18 +105,24 @@ func (app *App) initFlags() {
 	if gatewayAddressDefault == "" {
 		gatewayAddressDefault = "localhost:26500"
 	}
+	operateBaseURLDefault := os.Getenv("OPERATE_BASE_URL")
+	if operateBaseURLDefault == "" {
+		operateBaseURLDefault = "http://localhost:8081"
+	}
 
 	// Define flags with these defaults.
 	authServerURLFlag := flag.String("auth", authServerURLDefault, "Authorization server URL")
 	gatewayAddressFlag := flag.String("gateway", gatewayAddressDefault, "Gateway address")
 	testSuitesFlag := flag.String("testsuites", "all", "Comma-separated list of test suite process IDs to run, or 'all' to run every suite.")
 	deployWorkflowsFlag := flag.String("deployWorkflows", "none", "Workflow deployment option: 'none', 'suite', 'all', or comma-separated workflow file names.")
+	operateBaseURLFlag := flag.String("operate", operateBaseURLDefault, "Operate base URL")
 	flag.Parse()
 
 	app.config.AuthorizationServerURL = *authServerURLFlag
 	app.config.GatewayAddress = *gatewayAddressFlag
 	app.config.TestSuitesFlag = *testSuitesFlag
 	app.config.DeployWorkflowsFlag = *deployWorkflowsFlag
+	app.config.OperateBaseURL = *operateBaseURLFlag
 }
 
 // Execute processes workflow deployment and test suite execution based on flags.

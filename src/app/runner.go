@@ -62,6 +62,9 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 			}
 			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
 
+			// Record a threshold timestamp BEFORE publishing the message.
+			threshold := time.Now()
+
 			fmt.Printf("📨 Publishing message '%s' with correlation key '%s'\n", suite.MessageName, suite.MessageKey)
 			if err := app.zeebe.PublishMessage(suite.MessageName, suite.MessageKey, suite.TestCases[0].InitialVariables); err != nil {
 				fmt.Printf("❌ Failed to publish message: %v\n", err)
@@ -69,12 +72,16 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 				continue
 			}
 
-			resultVars, err = app.subscribeToExecutionListener(5 * time.Minute)
+			token := app.operate.GetOperateToken()
+
+			// Use the new subscription function to wait for a notification from an instance started after the threshold.
+			resultVars, err = app.subscribeToExecutionListenerAfterThreshold(threshold, 5*time.Minute, token)
 			if err != nil {
-				fmt.Printf("❌ Error waiting for execution listener notification: %v\n", err)
+				fmt.Printf("❌ Error waiting for execution listener notification after threshold: %v\n", err)
 				app.failedTests += len(suite.TestCases)
 				continue
 			}
+
 		} else {
 			// Direct process start (non message-based).
 			resultVars, err = app.zeebe.WaitForProcessResult(suite.ProcessID, suite.TestCases[0].InitialVariables, 5*time.Minute)

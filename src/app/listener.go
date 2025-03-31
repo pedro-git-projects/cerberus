@@ -52,3 +52,49 @@ func (app *App) subscribeToExecutionListener(timeout time.Duration) (map[string]
 		return nil, fmt.Errorf("timed out waiting for execution listener notification")
 	}
 }
+
+func (app *App) subscribeToExecutionListenerAfterThreshold(threshold time.Time, timeout time.Duration, token string) (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for {
+		select {
+		case vars := <-app.listener.executionChan:
+			// Assume the job variables include "processInstanceKey"
+			piKeyRaw, ok := vars["processInstanceKey"]
+			if !ok {
+				log.Printf("❌ Received notification without processInstanceKey: %v", vars)
+				continue // or return error if desired
+			}
+			// Zeebe uses numeric keys; adjust conversion as needed.
+			piKeyFloat, ok := piKeyRaw.(float64)
+			if !ok {
+				log.Printf("❌ processInstanceKey is not a number: %v", piKeyRaw)
+				continue
+			}
+			piKey := int64(piKeyFloat)
+
+			// Use your operate service to fetch the process instance details.
+			instance, err := app.operate.FetchProcessInstance(piKey, token)
+			if err != nil {
+				log.Printf("❌ Error fetching process instance %d: %v", piKey, err)
+				continue
+			}
+			// Parse the start date. Adjust the layout string if your Operate API returns a different format.
+			layout := "2006-01-02 15:04:05"
+			startTime, err := time.Parse(layout, instance.StartDate)
+			if err != nil {
+				log.Printf("❌ Error parsing startDate (%s): %v", instance.StartDate, err)
+				continue
+			}
+			// Check whether this instance was started after the threshold.
+			if startTime.After(threshold) {
+				return vars, nil
+			} else {
+				log.Printf("🔎 Ignoring notification for instance %d started at %v (threshold: %v)", piKey, startTime, threshold)
+			}
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timed out waiting for execution listener notification after threshold")
+		}
+	}
+}
