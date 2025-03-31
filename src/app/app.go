@@ -230,3 +230,16 @@ func (app *App) initClient() {
 
 	app.client = client
 }
+
+// drainExecutionChan continuously reads from executionChan until it's empty.
+func (app *App) drainExecutionChan() {
+	for {
+		select {
+		case <-app.listener.executionChan:
+			// Discard the value and continue.
+		default:
+			// Channel is empty.
+			return
+		}
+	}
+}

@@ -17,6 +17,8 @@ import (
 func (app *App) RunTestSuites(suites []TestSuite) {
 	app.testSuites = suites
 
+	app.drainExecutionChan()
+
 	for _, suite := range app.testSuites {
 		// Process unique markers on the test suite level.
 		suite.MessageKey = processUniqueMarkers(suite.MessageKey).(string)
@@ -62,9 +64,6 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 			}
 			suite.TestCases[0].InitialVariables["messageKey"] = suite.MessageKey
 
-			// Record a threshold timestamp BEFORE publishing the message.
-			threshold := time.Now()
-
 			fmt.Printf("📨 Publishing message '%s' with correlation key '%s'\n", suite.MessageName, suite.MessageKey)
 			if err := app.zeebe.PublishMessage(suite.MessageName, suite.MessageKey, suite.TestCases[0].InitialVariables); err != nil {
 				fmt.Printf("❌ Failed to publish message: %v\n", err)
@@ -72,12 +71,10 @@ func (app *App) RunTestSuites(suites []TestSuite) {
 				continue
 			}
 
-			token := app.operate.GetOperateToken()
-
-			// Use the new subscription function to wait for a notification from an instance started after the threshold.
-			resultVars, err = app.subscribeToExecutionListenerAfterThreshold(threshold, 5*time.Minute, token)
+			// Now, subscribe for a notification that has the expected correlation key.
+			resultVars, err = app.subscribeToExecutionListenerForCorrelationKey(suite.MessageKey, 5*time.Minute)
 			if err != nil {
-				fmt.Printf("❌ Error waiting for execution listener notification after threshold: %v\n", err)
+				fmt.Printf("❌ Error waiting for execution listener notification with correlation key: %v\n", err)
 				app.failedTests += len(suite.TestCases)
 				continue
 			}

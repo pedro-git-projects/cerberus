@@ -98,3 +98,28 @@ func (app *App) subscribeToExecutionListenerAfterThreshold(threshold time.Time, 
 		}
 	}
 }
+
+// subscribeToExecutionListenerForCorrelationKey waits for a notification whose correlation key matches expectedKey.
+func (app *App) subscribeToExecutionListenerForCorrelationKey(expectedKey string, timeout time.Duration) (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for {
+		select {
+		case vars := <-app.listener.executionChan:
+			// Check for the correlation key.
+			var keyVal string
+			if val, ok := vars["message-key"]; ok {
+				keyVal, _ = val.(string)
+			} else if val, ok := vars["messageKey"]; ok {
+				keyVal, _ = val.(string)
+			}
+			if keyVal == expectedKey {
+				log.Printf("✅ Received matching notification with correlation key: %s", keyVal)
+				return vars, nil
+			}
+			log.Printf("🔎 Ignoring notification with correlation key %s (expected: %s)", keyVal, expectedKey)
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timed out waiting for execution listener notification with correlation key %s", expectedKey)
+		}
+	}
+}
