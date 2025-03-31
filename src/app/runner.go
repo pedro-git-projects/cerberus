@@ -165,6 +165,14 @@ func (app *App) loadTestSuites(filename string) ([]TestSuite, error) {
 		return nil, err
 	}
 
+	// Process unique markers in global variables.
+	for k, v := range cfg.Variables {
+		if strings.Contains(v, "#unique") {
+			cfg.Variables[k] = processUniqueMarkers(v).(string)
+		}
+	}
+	// Now assign the processed global variables to the app.
+	app.variables = cfg.Variables
 	// For each test suite, substitute global variables.
 	for si, suite := range cfg.TestSuites {
 		// Process unique markers for the suite message key.
